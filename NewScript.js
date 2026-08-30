@@ -1400,7 +1400,7 @@ async function preloadGfsData() {
           availableDates = json.dates || Object.keys(json.vectors).sort();
           for (const d of availableDates) {
             const raw = json.vectors[d] || [];
-            forecastVectorsByDate[d] = parseAuthenticGfsVectors(raw);
+            forecastVectorsByDate[d] = generateGlobalWindField(d, raw);
           }
           loaded = true;
         }
