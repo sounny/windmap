@@ -1,92 +1,312 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Wind Map</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
-    />
-    <link rel="stylesheet" href="style.css" />
-    
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css?family=Oswald|Roboto"
-    />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  </head>
-  <body>
-    <h1 id="title">Map Winds</h1>
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
-    <div class="page-container">
-      <div id="route"></div>
-      <div class="section-container">
-        <section class="map-section">
-          <div id="map">
-            <div id="loadingIndicator" class="loading"></div>
-            <div class="legend">
-              <h4>Wind Speed (knots)</h4>
-              <div class="legend-item">
-                <i class="fas fa-arrow-up" style="color: green;"></i>
-                <span>&lt; 5</span>
-              </div>
-              <div class="legend-item">
-                <i class="fas fa-arrow-up" style="color: #ffcc00;"></i>
-                <span>5 - 10</span>
-              </div>
-              <div class="legend-item">
-                <i class="fas fa-arrow-up" style="color: red;"></i>
-                <span>&gt; 10</span>
-              </div>
-            </div>
-          </div>
-        </section>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Map Winds Pro | Marine & Aviation Wind Forecast Cockpit</title>
+  
+  <!-- Leaflet GIS Engine -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
 
-        <section id="part">
-          <p class="smallHeading">
-            Select co-ordinates on the map to get real time data and plan your
-            route
-          </p>
-          <div class="route-actions">
-            <button id="resetRoute" type="button">Reset Route</button>
-          </div>
-          <div id="mytext">
-            <table style="width: 100%">
-              <tr>
-                <th style="width: 52%">Position</th>
-                <th style="width: 24%">Wind speed (knots)</th>
-                <th style="width: 24%">Wind direction (degrees)</th>
-              </tr>
-              <table id="selected" style="width: 100%"></table>
-            </table>
-          </div>
-        </section>
+  <!-- Icons & Fonts -->
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+  />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap"
+    rel="stylesheet"
+  />
 
-        <div class="play-container">
-          <div class="play-section">
-            <input class="date" type="range" id="dateslider" min="0" max="6" step="1" value="0"/>
-            <div class="loader-container">
-              <div id="loader" class="loader"></div>
-            </div>
-            <button id="play"><img src="play.png" /></button>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Top Navigation HUD -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="brand-icon">
+        <i class="fa-solid fa-compass-drafting"></i>
+      </div>
+      <div class="brand-text">
+        <h1>MAP WINDS <span>PRO</span></h1>
+        <span class="subtext">NOAA GFS 0.25° Global Ocean Wind Telemetry</span>
+      </div>
+    </div>
+
+    <!-- Search / Geocoder -->
+    <div class="search-box">
+      <i class="fa-solid fa-magnifying-glass search-icon"></i>
+      <input
+        type="text"
+        id="locationSearch"
+        placeholder="Search city, port, or lat, lon (e.g. 32.5, -64.8)..."
+      />
+      <button id="searchBtn" title="Search Location"><i class="fa-solid fa-arrow-right"></i></button>
+    </div>
+
+    <!-- Telemetry & Controls Quick Bar -->
+    <div class="nav-controls">
+      <!-- Unit Switcher -->
+      <div class="control-group">
+        <label for="unitSelect"><i class="fa-solid fa-gauge-high"></i> Units:</label>
+        <select id="unitSelect">
+          <option value="knots" selected>Knots (kts)</option>
+          <option value="mph">Miles/hr (mph)</option>
+          <option value="kmh">Km/hr (km/h)</option>
+          <option value="ms">Meters/s (m/s)</option>
+          <option value="bft">Beaufort (Bft)</option>
+        </select>
+      </div>
+
+      <!-- Basemap Switcher -->
+      <div class="control-group">
+        <label for="basemapSelect"><i class="fa-solid fa-layer-group"></i> Map:</label>
+        <select id="basemapSelect">
+          <option value="dark" selected>Dark Nautical</option>
+          <option value="satellite">Satellite Oceans</option>
+          <option value="voyager">Voyager Navigation</option>
+        </select>
+      </div>
+
+      <!-- Live UTC HUD -->
+      <div class="utc-clock">
+        <span class="clock-label">UTC TIME</span>
+        <span id="utcTimeDisplay" class="clock-time">--:--:--</span>
+      </div>
+
+      <!-- Sidebar Toggle (Mobile/Desktop) -->
+      <button id="sidebarToggle" class="btn-icon" title="Toggle Route & Telemetry Drawer">
+        <i class="fa-solid fa-bars-staggered"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Cockpit Viewport -->
+  <main class="cockpit-container">
+    <!-- Map Canvas -->
+    <div id="map">
+      <!-- Loading Overlay -->
+      <div id="loadingIndicator" class="map-loader">
+        <div class="spinner"></div>
+        <span>Loading NOAA GFS Telemetry...</span>
+      </div>
+
+      <!-- Legend Overlay -->
+      <div class="map-legend">
+        <div class="legend-header">
+          <i class="fa-solid fa-wind"></i>
+          <span>WIND VELOCITY</span>
+          <span id="legendUnitBadge" class="badge">knots</span>
+        </div>
+        <div class="legend-scale">
+          <div class="scale-item">
+            <span class="scale-dot" style="background: #10b981;"></span>
+            <span class="scale-label">&lt; 5 (Calm)</span>
           </div>
-          <p class="date">
-            Selected Date:
-            <span id="selectedDate" id="selectedDate">2023-10-12</span>
-          </p>
+          <div class="scale-item">
+            <span class="scale-dot" style="background: #38bdf8;"></span>
+            <span class="scale-label">5 - 10 (Light)</span>
+          </div>
+          <div class="scale-item">
+            <span class="scale-dot" style="background: #facc15;"></span>
+            <span class="scale-label">10 - 15 (Moderate)</span>
+          </div>
+          <div class="scale-item">
+            <span class="scale-dot" style="background: #fb923c;"></span>
+            <span class="scale-label">15 - 20 (Fresh)</span>
+          </div>
+          <div class="scale-item">
+            <span class="scale-dot" style="background: #ef4444;"></span>
+            <span class="scale-label">&gt; 20 (Gale/Storm)</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <script src="NewScript.js"></script>
-  </body>
+    <!-- Floating Right Telemetry & Route Planning Drawer -->
+    <aside id="telemetryDrawer" class="telemetry-drawer">
+      <!-- Drawer Header -->
+      <div class="drawer-header">
+        <div class="drawer-title">
+          <i class="fa-solid fa-compass"></i>
+          <h2>Telemetry & Navigation</h2>
+        </div>
+        <button id="closeDrawerBtn" class="btn-close" title="Close Panel">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Live Point Weather Card -->
+      <section class="telemetry-card">
+        <div class="card-header">
+          <span class="tag">ACTIVE INSPECTOR</span>
+          <span id="telemetrySource" class="source-badge">Click Map to Inspect</span>
+        </div>
+
+        <div class="coords-display">
+          <div class="coord-item">
+            <span class="coord-label">Coordinates (DMS):</span>
+            <span id="coordDMS" class="coord-value">--° --' --" N / --° --' --" W</span>
+          </div>
+          <div class="coord-item">
+            <span class="coord-label">Decimal Degrees:</span>
+            <span id="coordDD" class="coord-value">--.----, --.----</span>
+          </div>
+        </div>
+
+        <!-- Compass Rose & Speed Gauge -->
+        <div class="wind-gauge-container">
+          <div class="compass-rose">
+            <div class="compass-ring">
+              <span class="cardinal n">N</span>
+              <span class="cardinal e">E</span>
+              <span class="cardinal s">S</span>
+              <span class="cardinal w">W</span>
+              <div id="compassNeedle" class="compass-needle">
+                <div class="needle-head"></div>
+              </div>
+            </div>
+            <div class="bearing-badge">
+              <span id="bearingDeg">0°</span>
+              <span id="cardinalText">CALM</span>
+            </div>
+          </div>
+
+          <div class="gauge-stats">
+            <div class="stat-box primary">
+              <span class="stat-label">WIND SPEED</span>
+              <div class="stat-value-group">
+                <span id="windSpeedVal" class="stat-value">--</span>
+                <span id="windSpeedUnit" class="stat-unit">kts</span>
+              </div>
+              <span id="beaufortChip" class="beaufort-chip">Force --</span>
+            </div>
+
+            <div class="stat-row">
+              <div class="stat-mini">
+                <span class="mini-label">GUSTS</span>
+                <span id="gustSpeedVal" class="mini-val">-- kts</span>
+              </div>
+              <div class="stat-mini">
+                <span class="mini-label">PRESSURE</span>
+                <span id="pressureVal" class="mini-val">-- hPa</span>
+              </div>
+              <div class="stat-mini">
+                <span class="mini-label">TEMP</span>
+                <span id="tempVal" class="mini-val">-- °C</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Route Planner & Waypoints Ledger -->
+      <section class="route-section">
+        <div class="section-title-bar">
+          <div class="title-with-count">
+            <i class="fa-solid fa-route"></i>
+            <h3>Route Waypoints</h3>
+            <span id="waypointCountBadge" class="count-badge">0 WP</span>
+          </div>
+          <div class="total-distance">
+            <span>Total Dist:</span>
+            <strong id="totalDistanceVal">0.0 NM</strong>
+          </div>
+        </div>
+
+        <p class="route-instructions">
+          <i class="fa-solid fa-circle-info"></i> Click anywhere on the map to drop navigation waypoints and calculate Great-Circle routing.
+        </p>
+
+        <!-- Waypoints Table Container -->
+        <div class="table-scroll-container">
+          <table class="route-table">
+            <thead>
+              <tr>
+                <th style="width: 14%;">#</th>
+                <th style="width: 36%;">Position</th>
+                <th style="width: 25%;">Wind</th>
+                <th style="width: 25%;">Leg (NM)</th>
+              </tr>
+            </thead>
+            <tbody id="waypointTableBody">
+              <tr class="empty-row">
+                <td colspan="4">No waypoints plotted yet. Click map to begin.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Route Action Toolbar -->
+        <div class="route-actions">
+          <button id="resetRoute" class="btn-action danger" type="button">
+            <i class="fa-solid fa-trash-can"></i> Clear Route
+          </button>
+          <button id="exportGpx" class="btn-action secondary" type="button">
+            <i class="fa-solid fa-file-arrow-down"></i> Export GPX
+          </button>
+          <button id="exportGeoJson" class="btn-action secondary" type="button">
+            <i class="fa-solid fa-code"></i> GeoJSON
+          </button>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Floating Bottom Forecast Timeline Scrubber Dock -->
+    <div class="timeline-dock">
+      <div class="dock-inner">
+        <!-- Playback Controls -->
+        <div class="playback-controls">
+          <button id="prevDayBtn" class="btn-dock" title="Previous Forecast Interval">
+            <i class="fa-solid fa-backward-step"></i>
+          </button>
+          <button id="playBtn" class="btn-dock play-btn" title="Auto-Play Forecast Timeline">
+            <i class="fa-solid fa-play"></i>
+          </button>
+          <button id="nextDayBtn" class="btn-dock" title="Next Forecast Interval">
+            <i class="fa-solid fa-forward-step"></i>
+          </button>
+          <button id="speedMultiplierBtn" class="btn-dock speed-badge" title="Playback Speed">
+            1x
+          </button>
+        </div>
+
+        <!-- Timeline Slider Bar -->
+        <div class="slider-container">
+          <input
+            class="timeline-slider"
+            type="range"
+            id="dateslider"
+            min="0"
+            max="6"
+            step="1"
+            value="0"
+          />
+          <div id="timelineTicks" class="timeline-ticks"></div>
+        </div>
+
+        <!-- Active Forecast Date & Time Badge -->
+        <div class="timestamp-hud">
+          <span class="hud-label">GFS FORECAST</span>
+          <span id="selectedDate" class="hud-date">Loading Model...</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="NewScript.js"></script>
+</body>
 </html>

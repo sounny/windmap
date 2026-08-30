@@ -1,38 +1,41 @@
-name: Run downloadData Daily
+name: Run Daily NOAA GFS Data Ingestion
 
 on:
   schedule:
-    - cron: '0 0 * * *' 
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  update-file:
+  update-forecast:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9.13'
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install System Dependencies (ecCodes for GRIB2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libeccodes-dev
+
+      - name: Install Python Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Debug file paths
-        run: |
-          ls -R
-
-
-      - name: Run the update script
+      - name: Run NOAA GFS Ingestion Script
         run: python downloadData.py
 
-      - name: Commit and push changes
+      - name: Commit and push updated forecast
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "Update files via daily script" || echo "No changes to commit"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add forecast.geojson
+          git commit -m "Update NOAA GFS forecast telemetry [skip ci]" || echo "No changes to commit"
           git push
