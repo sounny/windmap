@@ -18,6 +18,8 @@ let polyline = null;
 let routeHoverBeacon = null;
 const drawnItems = new L.FeatureGroup();
 let canvasOverlay = null;
+let particleOverlay = null;
+let currentDisplayStyle = 'arrows'; // 'arrows' or 'particles'
 
 let forecastVectorsByDate = {}; // { 'YYYY-MM-DD': Float32Array([lat, lon, speed, dir, ...]) }
 let availableDates = [];
@@ -242,6 +244,166 @@ class WindCanvasOverlay {
   }
 }
 
+
+// ============================================================================
+// 1B. High-Performance 60 FPS Animated Fluid Particle Engine
+// ============================================================================
+class WindParticleOverlay {
+  constructor(leafletMap) {
+    this.map = leafletMap;
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'wind-particle-layer';
+    this.canvas.style.position = 'absolute';
+    this.canvas.style.top = '0';
+    this.canvas.style.left = '0';
+    this.canvas.style.pointerEvents = 'none';
+    this.canvas.style.zIndex = '450';
+    this.ctx = this.canvas.getContext('2d', { alpha: true });
+
+    this.map.getPanes().overlayPane.appendChild(this.canvas);
+    this.vectors = null;
+    this.particles = [];
+    this.maxParticles = 2200;
+    this.animId = null;
+    this.isActive = false;
+
+    this.resize();
+    this.reposition();
+
+    this.map.on('move', () => this.reposition());
+    this.map.on('moveend', () => {
+      this.reposition();
+      this.resetParticles();
+    });
+    this.map.on('zoomend', () => {
+      this.resize();
+      this.reposition();
+      this.resetParticles();
+    });
+    this.map.on('resize', () => {
+      this.resize();
+      this.reposition();
+      this.resetParticles();
+    });
+  }
+
+  resize() {
+    const size = this.map.getSize();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = size.x * dpr;
+    this.canvas.height = size.y * dpr;
+    this.canvas.style.width = `${size.x}px`;
+    this.canvas.style.height = `${size.y}px`;
+    this.ctx.scale(dpr, dpr);
+    this.dpr = dpr;
+  }
+
+  reposition() {
+    const topLeft = this.map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(this.canvas, topLeft);
+  }
+
+  setVectors(vectors) {
+    this.vectors = vectors;
+    this.resetParticles();
+  }
+
+  resetParticles() {
+    const size = this.map.getSize();
+    this.particles = [];
+    for (let i = 0; i < this.maxParticles; i++) {
+      this.particles.push({
+        x: Math.random() * size.x,
+        y: Math.random() * size.y,
+        prevX: 0,
+        prevY: 0,
+        age: Math.floor(Math.random() * 80),
+        maxAge: 40 + Math.floor(Math.random() * 60),
+        speed: 0
+      });
+    }
+  }
+
+  start() {
+    this.isActive = true;
+    this.canvas.style.display = 'block';
+    this.resetParticles();
+    this.animate();
+  }
+
+  stop() {
+    this.isActive = false;
+    this.canvas.style.display = 'none';
+    if (this.animId) {
+      cancelAnimationFrame(this.animId);
+      this.animId = null;
+    }
+    if (this.ctx) {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
+  animate() {
+    if (!this.isActive) return;
+    this.drawFrame();
+    this.animId = requestAnimationFrame(() => this.animate());
+  }
+
+  drawFrame() {
+    if (!this.map || !this.ctx || !this.vectors || this.vectors.length === 0) return;
+    const size = this.map.getSize();
+    const ctx = this.ctx;
+
+    // Fluid particle motion blur fade effect
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.restore();
+
+    ctx.save();
+    const speedScale = 0.55;
+    const toRad = Math.PI / 180;
+
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      p.prevX = p.x;
+      p.prevY = p.y;
+
+      // Convert canvas pixel (x, y) to Map Lat/Lon
+      const latlng = this.map.containerPointToLatLng([p.x, p.y]);
+      const wind = interpolateVectorField(latlng.lat, latlng.lng);
+
+      p.speed = wind.speed;
+      const angle = ((wind.dir + 90) % 360) * toRad;
+
+      const step = Math.min(Math.max(wind.speed * speedScale, 1.2), 8.5);
+      p.x += step * Math.cos(angle);
+      p.y += step * Math.sin(angle);
+      p.age++;
+
+      // Draw particle line segment
+      ctx.beginPath();
+      ctx.strokeStyle = getWindColor(wind.speed);
+      ctx.lineWidth = 1.3;
+      ctx.lineCap = 'round';
+      ctx.moveTo(p.prevX, p.prevY);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+
+      // Respawn particle if expired or offscreen
+      if (p.age > p.maxAge || p.x < 0 || p.x > size.x || p.y < 0 || p.y > size.y) {
+        p.x = Math.random() * size.x;
+        p.y = Math.random() * size.y;
+        p.age = 0;
+        p.maxAge = 40 + Math.floor(Math.random() * 60);
+      }
+    }
+    ctx.restore();
+  }
+}
+
 function initMap() {
   map = L.map('map', {
     preferCanvas: true,
@@ -292,6 +454,8 @@ function initMap() {
 
   // Initialize Vector Canvas Overlay
   canvasOverlay = new WindCanvasOverlay(map);
+  particleOverlay = new WindParticleOverlay(map);
+  particleOverlay.stop();
 
   // Map Click Event for Waypoints
   map.on('click', handleMapClick);
@@ -1505,6 +1669,9 @@ function updateWindDisplay(date) {
   if (canvasOverlay) {
     canvasOverlay.setVectors(vectors);
   }
+  if (particleOverlay) {
+    particleOverlay.setVectors(vectors);
+  }
   if (waypoints.length > 1) {
     updateRoutePolyline();
   }
@@ -1595,6 +1762,59 @@ function initEventListeners() {
   if (closeDrawerBtn) {
     closeDrawerBtn.addEventListener('click', () => {
       telemetryDrawer.classList.add('closed');
+    });
+  }
+
+  
+  // Visual Style Toggle (Arrows vs Particles)
+  const btnStyleArrows = document.getElementById('btnStyleArrows');
+  const btnStyleParticles = document.getElementById('btnStyleParticles');
+
+  function setDisplayStyle(style) {
+    currentDisplayStyle = style;
+    if (style === 'particles') {
+      if (btnStyleParticles) btnStyleParticles.classList.add('active');
+      if (btnStyleArrows) btnStyleArrows.classList.remove('active');
+      if (canvasOverlay) canvasOverlay.canvas.style.display = 'none';
+      if (particleOverlay) {
+        if (currentDisplayVectors) particleOverlay.setVectors(currentDisplayVectors);
+        particleOverlay.start();
+      }
+    } else {
+      if (btnStyleArrows) btnStyleArrows.classList.add('active');
+      if (btnStyleParticles) btnStyleParticles.classList.remove('active');
+      if (particleOverlay) particleOverlay.stop();
+      if (canvasOverlay) {
+        canvasOverlay.canvas.style.display = 'block';
+        canvasOverlay.draw();
+      }
+    }
+  }
+
+  if (btnStyleArrows) btnStyleArrows.addEventListener('click', () => setDisplayStyle('arrows'));
+  if (btnStyleParticles) btnStyleParticles.addEventListener('click', () => setDisplayStyle('particles'));
+
+  // Locate Me GPS Button
+  const locateMeBtn = document.getElementById('locateMeBtn');
+  if (locateMeBtn) {
+    locateMeBtn.addEventListener('click', () => {
+      if ('geolocation' in navigator) {
+        locateMeBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            locateMeBtn.innerHTML = '<i class="fa-solid fa-crosshairs"></i>';
+            const { latitude, longitude } = pos.coords;
+            flyToLocation(latitude, longitude, 8, 'My Live GPS Location');
+          },
+          err => {
+            locateMeBtn.innerHTML = '<i class="fa-solid fa-crosshairs"></i>';
+            alert('Geolocation access denied or unavailable: ' + err.message);
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      } else {
+        alert('Geolocation is not supported by your browser.');
+      }
     });
   }
 

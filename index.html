@@ -30,7 +30,7 @@
     rel="stylesheet"
   />
 
-  <link rel="stylesheet" href="style.css?v=1788094996" />
+  <link rel="stylesheet" href="style.css?v=1788105841" />
 </head>
 <body>
   <!-- Top Navigation Translucent Glass HUD -->
@@ -92,6 +92,16 @@
         </button>
       </div>
 
+      <!-- Display Style Switcher: Arrows vs Fluid Particles -->
+      <div class="style-switch-container glass-pill" title="Wind Visualization: Precision Arrows vs Flowing Fluid Particles">
+        <button id="btnStyleArrows" class="style-switch-btn active" title="Precision Arrow Needles">
+          <i class="fa-solid fa-arrow-trend-up"></i> <span>Arrows</span>
+        </button>
+        <button id="btnStyleParticles" class="style-switch-btn" title="60 FPS Animated Fluid Particles">
+          <i class="fa-solid fa-water"></i> <span>Particles</span>
+        </button>
+      </div>
+
       <!-- Direction Convention Switcher (FROM vs TO) -->
       <div class="dir-switch-container glass-pill" title="Wind Direction Convention: Meteorological (FROM) vs Oceanographic (BLOWS TO)">
         <button id="btnDirFrom" class="dir-switch-btn active" data-dir-mode="from">
@@ -113,6 +123,11 @@
           <option value="bft">Beaufort</option>
         </select>
       </div>
+
+      <!-- Locate Me GPS Beacon -->
+      <button id="locateMeBtn" class="btn-icon glass-btn" title="Locate My Position via GPS">
+        <i class="fa-solid fa-crosshairs"></i>
+      </button>
 
       <!-- Theme Switcher (Light / Dark Mode) -->
       <button id="themeToggleBtn" class="btn-icon glass-btn" title="Toggle Light / Dark Mode">
@@ -405,6 +420,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="NewScript.js?v=1788094996"></script>
+  <script src="NewScript.js?v=1788105841"></script>
 </body>
 </html>
