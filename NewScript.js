@@ -1,5 +1,5 @@
 /**
- * Map Winds Pro - Master Client GIS Engine
+ * Wind Map - Master Client GIS Engine
  * High-performance 60 FPS Canvas vector field, proportional wind vector lengths,
  * true GLOBAL coverage, Along-Route Geodesic Line Telemetry Interpolation,
  * Instant Vector/Satellite toggle, Light/Dark themes, and zero-lag date scrubbing.
@@ -948,7 +948,7 @@ function exportRouteGpx() {
   }
 
   let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  gpx += `<gpx version="1.1" creator="Map Winds Pro - https://github.com/sounny/windmap" xmlns="http://www.topografix.com/GPX/1/1">\n`;
+  gpx += `<gpx version="1.1" creator="Wind Map - https://github.com/sounny/windmap" xmlns="http://www.topografix.com/GPX/1/1">\n`;
   gpx += `  <metadata><name>Map Winds Planned Route</name><time>${new Date().toISOString()}</time></metadata>\n`;
   gpx += `  <rte>\n    <name>Marine Navigation Route</name>\n`;
 
@@ -961,7 +961,7 @@ function exportRouteGpx() {
 
   gpx += `  </rte>\n</gpx>`;
 
-  downloadFile(gpx, 'mapwinds_route.gpx', 'application/gpx+xml');
+  downloadFile(gpx, 'windmap_route.gpx', 'application/gpx+xml');
 }
 
 function exportRouteGeoJson() {
@@ -1005,7 +1005,7 @@ function exportRouteGeoJson() {
     ]
   };
 
-  downloadFile(JSON.stringify(geojson, null, 2), 'mapwinds_route.geojson', 'application/json');
+  downloadFile(JSON.stringify(geojson, null, 2), 'windmap_route.geojson', 'application/json');
 }
 
 function downloadFile(content, fileName, mimeType) {
@@ -1428,7 +1428,7 @@ async function preloadGfsData() {
     
     updateSelectedDateLabel(availableDates[currentDateIndex]);
     updateWindDisplay(availableDates[currentDateIndex]);
-    console.log(`[Map Winds Pro] Live verification complete: aligned to ${availableDates[currentDateIndex]} (Today: ${todayUtc})`);
+    console.log(`[Wind Map] Live verification complete: aligned to ${availableDates[currentDateIndex]} (Today: ${todayUtc})`);
   } catch (err) {
     console.error('Error preloading GFS data:', err);
     const today = new Date();
