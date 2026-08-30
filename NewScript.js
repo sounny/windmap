@@ -1,3 +1,7 @@
+// Defensive global alias for any cached caller
+window.parseAuthenticGfsVectors = function(raw) {
+  return generateGlobalWindField(new Date().toISOString().split('T')[0], raw);
+};
 /**
  * Wind Map - Master Client GIS Engine
  * High-performance 60 FPS Canvas vector field, proportional wind vector lengths,
