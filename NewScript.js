@@ -81,6 +81,9 @@ const legendUnitBadge = document.getElementById('legendUnitBadge');
 // ============================================================================
 // 1. High-Performance HTML5 Canvas Vector Field Engine (60 FPS)
 // ============================================================================
+// ============================================================================
+// 1. High-Performance HTML5 Canvas Vector Field Engine (60 FPS Global)
+// ============================================================================
 class WindCanvasOverlay {
   constructor(leafletMap) {
     this.map = leafletMap;
@@ -159,7 +162,7 @@ class WindCanvasOverlay {
       return;
     }
 
-    const bounds = this.map.getBounds().pad(0.15);
+    const bounds = this.map.getBounds().pad(0.1);
     const zoom = this.map.getZoom();
     const ctx = this.ctx;
     const toRad = Math.PI / 180;
@@ -167,67 +170,71 @@ class WindCanvasOverlay {
     const count = vectors.length / 4;
 
     let stride = 1;
-    if (zoom <= 3) stride = 4;
+    if (zoom <= 2) stride = 5;
+    else if (zoom <= 3) stride = 3;
     else if (zoom <= 4) stride = 2;
     else stride = 1;
 
-    for (let i = 0; i < count; i += stride) {
-      const idx = i * 4;
-      const lat = vectors[idx];
-      const lon = vectors[idx + 1];
+    // Handle full-world longitude wrapping across Leaflet viewports
+    const minWorld = Math.floor((bounds.getWest() + 180) / 360);
+    const maxWorld = Math.floor((bounds.getEast() + 180) / 360);
 
-      if (lat < bounds.getSouth() || lat > bounds.getNorth()) continue;
-      
-      const layerPt = this.map.latLngToContainerPoint([lat, lon]);
-      const x = layerPt.x;
-      const y = layerPt.y;
+    for (let w = minWorld; w <= maxWorld; w++) {
+      const lonOffset = w * 360;
 
-      if (x < -40 || y < -40 || x > size.x + 40 || y > size.y + 40) continue;
+      for (let i = 0; i < count; i += stride) {
+        const idx = i * 4;
+        const lat = vectors[idx];
+        const lon = vectors[idx + 1] + lonOffset;
 
-      const speed = vectors[idx + 2];
-      const dir = vectors[idx + 3];
-      const color = getWindColor(speed);
+        const layerPt = this.map.latLngToContainerPoint([lat, lon]);
+        const x = layerPt.x;
+        const y = layerPt.y;
 
-      // PROPORTIONAL VECTOR LENGTH (Scales directly with wind speed!)
-      const len = Math.min(Math.max(10 + speed * 1.25, 11), 44);
-      const headLen = Math.min(Math.max(4 + speed * 0.2, 4.5), 9.5);
-      const strokeWidth = Math.min(Math.max(1.2 + speed * 0.04, 1.2), 2.6);
+        if (x < -40 || y < -40 || x > size.x + 40 || y > size.y + 40) continue;
 
-      const angle = (dir - 90) * toRad;
-      const endX = x + len * Math.cos(angle);
-      const endY = y + len * Math.sin(angle);
+        const speed = vectors[idx + 2];
+        const dir = vectors[idx + 3];
+        const color = getWindColor(speed);
 
-      const barbAngle1 = angle + Math.PI * 0.82;
-      const barbAngle2 = angle - Math.PI * 0.82;
+        // PROPORTIONAL VECTOR LENGTH
+        const len = Math.min(Math.max(10 + speed * 1.25, 11), 44);
+        const headLen = Math.min(Math.max(4 + speed * 0.2, 4.5), 9.5);
+        const strokeWidth = Math.min(Math.max(1.2 + speed * 0.04, 1.2), 2.6);
 
-      ctx.beginPath();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+        const angle = (dir - 90) * toRad;
+        const endX = x + len * Math.cos(angle);
+        const endY = y + len * Math.sin(angle);
 
-      ctx.moveTo(x, y);
-      ctx.lineTo(endX, endY);
+        const barbAngle1 = angle + Math.PI * 0.82;
+        const barbAngle2 = angle - Math.PI * 0.82;
 
-      ctx.lineTo(endX + headLen * Math.cos(barbAngle1), endY + headLen * Math.sin(barbAngle1));
-      ctx.moveTo(endX, endY);
-      ctx.lineTo(endX + headLen * Math.cos(barbAngle2), endY + headLen * Math.sin(barbAngle2));
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-      ctx.stroke();
+        ctx.moveTo(x, y);
+        ctx.lineTo(endX, endY);
 
-      ctx.beginPath();
-      ctx.arc(x, y, strokeWidth * 0.75, 0, Math.PI * 2);
-      ctx.fill();
+        ctx.lineTo(endX + headLen * Math.cos(barbAngle1), endY + headLen * Math.sin(barbAngle1));
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX + headLen * Math.cos(barbAngle2), endY + headLen * Math.sin(barbAngle2));
+
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(x, y, strokeWidth * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     this.ctx.restore();
   }
 }
 
-// ============================================================================
-// 2. Leaflet Initialization & Basemap Management
-// ============================================================================
 function initMap() {
   map = L.map('map', {
     preferCanvas: true,
@@ -420,65 +427,66 @@ function getPointOfSail(twaDeg) {
 // ============================================================================
 // 4. Global Wind Circulation Synthesis & GFS Grid Merging
 // ============================================================================
-function generateGlobalWindField(dateStr, gfsMap = {}) {
-  const rawFeatures = gfsMap[dateStr] || [];
-  const gfsPoints = [];
-
-  for (let i = 0; i < rawFeatures.length; i++) {
-    const f = rawFeatures[i];
-    const c = f?.geometry?.coordinates;
-    if (!c) continue;
-    gfsPoints.push({
-      lat: c[1],
-      lon: c[0],
-      speed: parseFloat(f.properties?.WS || 0),
-      dir: parseFloat(f.properties?.WD || 0)
-    });
+// ============================================================================
+// 4. Truly Global Planetary Wind Grid Generator
+// ============================================================================
+function generateGlobalWindField(dateStr, gfsArray = []) {
+  const gfsLookup = new Map();
+  if (gfsArray && gfsArray.length > 0) {
+    for (let i = 0; i < gfsArray.length; i += 4) {
+      const gLat = Math.round(gfsArray[i]);
+      const gLon = Math.round(gfsArray[i + 1]);
+      gfsLookup.set(`${gLat},${gLon}`, {
+        lat: gfsArray[i],
+        lon: gfsArray[i + 1],
+        speed: gfsArray[i + 2],
+        dir: gfsArray[i + 3]
+      });
+    }
   }
 
   const grid = [];
-  const dateSeed = (dateStr.charCodeAt(dateStr.length - 1) || 0) * 0.15;
+  const dateSeed = (dateStr.charCodeAt(dateStr.length - 1) || 0) * 0.18;
 
+  // Truly Global Grid (-80° to 80° Lat, -180° to 180° Lon)
   for (let lat = -80; lat <= 80; lat += 2.0) {
     for (let lon = -180; lon < 180; lon += 2.5) {
-      if (lat >= 12 && lat <= 50 && lon >= -82 && lon <= -15 && gfsPoints.length > 0) {
+      const key = `${Math.round(lat)},${Math.round(lon)}`;
+      if (gfsLookup.has(key)) {
+        const pt = gfsLookup.get(key);
+        grid.push(pt.lat, pt.lon, pt.speed, pt.dir);
         continue;
       }
 
       const absLat = Math.abs(lat);
-      let baseSpeed = 10;
+      let baseSpeed = 12;
       let baseDir = 270;
 
-      if (absLat < 30) {
+      if (absLat < 28) {
+        // Trade Winds (Blow from NE in North, SE in South)
         baseDir = lat >= 0 ? 65 : 115;
-        baseSpeed = 12 + 4 * Math.sin(lon * 0.05 + dateSeed);
-      } else if (absLat < 60) {
+        baseSpeed = 14 + 4 * Math.sin(lon * 0.05 + dateSeed);
+      } else if (absLat < 62) {
+        // Prevailing Westerlies (Blow from SW in North, NW in South)
         baseDir = lat >= 0 ? 245 : 295;
-        baseSpeed = 18 + 7 * Math.cos(lon * 0.08 + dateSeed);
+        baseSpeed = 19 + 7 * Math.cos(lon * 0.08 + dateSeed);
       } else {
+        // Polar Easterlies
         baseDir = lat >= 0 ? 80 : 100;
-        baseSpeed = 14 + 5 * Math.sin(lat * 0.1 + dateSeed);
+        baseSpeed = 15 + 5 * Math.sin(lat * 0.1 + dateSeed);
       }
 
-      const wave = Math.sin(lat * 0.1 + lon * 0.05 + dateSeed);
-      const speed = Math.max(2, baseSpeed + wave * 4);
-      const dir = (baseDir + wave * 25 + 360) % 360;
+      const wave = Math.sin(lat * 0.08 + lon * 0.04 + dateSeed) * Math.cos(lat * 0.05);
+      const speed = Math.max(3, baseSpeed + wave * 5.5);
+      const dir = (baseDir + wave * 30 + 360) % 360;
 
       grid.push(lat, lon, speed, dir);
     }
   }
 
-  for (let i = 0; i < gfsPoints.length; i++) {
-    const pt = gfsPoints[i];
-    grid.push(pt.lat, pt.lon, pt.speed, pt.dir);
-  }
-
   return new Float32Array(grid);
 }
 
-// ============================================================================
-// 5. Multi-Tier Weather Telemetry Provider & Line Interpolator
-// ============================================================================
 async function fetchWeatherTelemetry(lat, lon) {
   // Tier 1: Open-Meteo Marine / Weather API (Zero API Key, Global, Instant)
   try {
@@ -1094,7 +1102,6 @@ async function handleLocationSearch() {
 async function preloadGfsData() {
   loadingIndicator.style.display = 'flex';
   try {
-    // Try ultra-fast compact forecast.json (340 KB) first
     let loaded = false;
     try {
       const res = await fetch('forecast.json');
@@ -1104,7 +1111,7 @@ async function preloadGfsData() {
           availableDates = json.dates || Object.keys(json.vectors).sort();
           for (const d of availableDates) {
             const raw = json.vectors[d] || [];
-            forecastVectorsByDate[d] = new Float32Array(raw);
+            forecastVectorsByDate[d] = generateGlobalWindField(d, raw);
           }
           loaded = true;
         }
@@ -1114,33 +1121,14 @@ async function preloadGfsData() {
     }
 
     if (!loaded) {
-      // Fallback to forecast.geojson
-      const geojson = await fetch('forecast.geojson').then(r => r.json());
-      const features = Array.isArray(geojson.features) ? geojson.features : [];
-      const gfsDateMap = {};
-
-      const datesSet = new Set();
-      for (let i = 0; i < features.length; i++) {
-        const props = features[i]?.properties || {};
-        const dateOnly = props.date || (props.time ? String(props.time).split(' ')[0] : null);
-        if (dateOnly) {
-          datesSet.add(dateOnly);
-          if (!gfsDateMap[dateOnly]) gfsDateMap[dateOnly] = [];
-          gfsDateMap[dateOnly].push(features[i]);
-        }
-      }
-      availableDates = Array.from(datesSet).sort();
-      for (const d of availableDates) {
-        forecastVectorsByDate[d] = generateGlobalWindField(d, gfsDateMap);
-      }
-    }
-
-    if (availableDates.length === 0) {
       const today = new Date();
+      availableDates = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(today);
         d.setDate(today.getDate() + i);
-        availableDates.push(d.toISOString().split('T')[0]);
+        const ds = d.toISOString().split('T')[0];
+        availableDates.push(ds);
+        forecastVectorsByDate[ds] = generateGlobalWindField(ds, []);
       }
     }
 
@@ -1160,7 +1148,7 @@ async function preloadGfsData() {
       d.setDate(today.getDate() + i);
       const ds = d.toISOString().split('T')[0];
       availableDates.push(ds);
-      forecastVectorsByDate[ds] = generateGlobalWindField(ds);
+      forecastVectorsByDate[ds] = generateGlobalWindField(ds, []);
     }
     dateSlider.min = 0;
     dateSlider.max = availableDates.length - 1;
