@@ -1,21 +1,21 @@
 /* ==========================================================================
-   Map Winds Pro - Master Glassmorphic Stylesheet (High Transparency)
+   Map Winds Pro - Master Ultra-Transparent Crystal Glassmorphism Stylesheet
    ========================================================================== */
 
 :root {
-  /* DARK THEME TOKENS (Transparent Glassmorphism) */
+  /* DARK THEME TOKENS (Ultra-Transparent Crystal Glass) */
   --bg-primary: #040812;
-  --bg-surface-glass: rgba(8, 15, 30, 0.45);
-  --bg-card-glass: rgba(12, 20, 38, 0.40);
-  --bg-inset-glass: rgba(3, 7, 18, 0.35);
-  --bg-pill-glass: rgba(18, 28, 48, 0.45);
+  --bg-surface-glass: rgba(6, 12, 28, 0.22);
+  --bg-card-glass: rgba(10, 18, 38, 0.18);
+  --bg-inset-glass: rgba(2, 6, 18, 0.20);
+  --bg-pill-glass: rgba(15, 25, 48, 0.25);
   
-  --border-glass-bright: rgba(255, 255, 255, 0.16);
+  --border-glass-bright: rgba(255, 255, 255, 0.18);
   --border-glass-subtle: rgba(255, 255, 255, 0.08);
-  --border-glass-hover: rgba(56, 189, 248, 0.4);
+  --border-glass-hover: rgba(56, 189, 248, 0.5);
   
   --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
+  --text-secondary: #e2e8f0;
   --text-muted: #94a3b8;
   
   --accent-cyan: #38bdf8;
@@ -35,20 +35,20 @@
   --radius-lg: 18px;
   --radius-full: 9999px;
   
-  --shadow-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 16px 36px rgba(0, 0, 0, 0.45);
+  --shadow-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.22), 0 14px 36px rgba(0, 0, 0, 0.35);
   --shadow-glow: 0 0 24px rgba(56, 189, 248, 0.28);
-  --backdrop-blur: blur(20px) saturate(180%);
+  --backdrop-blur: blur(14px) saturate(160%);
 }
 
 /* LIGHT THEME TOKENS */
 [data-theme="light"] {
   --bg-primary: #e2e8f0;
-  --bg-surface-glass: rgba(255, 255, 255, 0.48);
-  --bg-card-glass: rgba(248, 250, 252, 0.50);
-  --bg-inset-glass: rgba(241, 245, 249, 0.45);
-  --bg-pill-glass: rgba(255, 255, 255, 0.55);
+  --bg-surface-glass: rgba(255, 255, 255, 0.28);
+  --bg-card-glass: rgba(255, 255, 255, 0.24);
+  --bg-inset-glass: rgba(255, 255, 255, 0.20);
+  --bg-pill-glass: rgba(255, 255, 255, 0.32);
   
-  --border-glass-bright: rgba(0, 0, 0, 0.12);
+  --border-glass-bright: rgba(0, 0, 0, 0.15);
   --border-glass-subtle: rgba(0, 0, 0, 0.08);
   --border-glass-hover: rgba(2, 132, 199, 0.5);
   
@@ -63,7 +63,7 @@
   --accent-orange: #ea580c;
   --accent-rose: #e11d48;
   
-  --shadow-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.8), 0 12px 28px rgba(15, 23, 42, 0.1);
+  --shadow-glass: inset 0 1px 0 0 rgba(255, 255, 255, 0.6), 0 10px 28px rgba(15, 23, 42, 0.08);
   --shadow-glow: 0 0 20px rgba(2, 132, 199, 0.2);
 }
 
@@ -98,11 +98,11 @@ html, body {
 
 .glass-card {
   background: var(--bg-card-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-glass-subtle);
   border-radius: var(--radius-md);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
 }
 
 .glass-inset {
@@ -113,15 +113,15 @@ html, body {
 
 .glass-pill {
   background: var(--bg-pill-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border-glass-bright);
   border-radius: var(--radius-full);
 }
 
 .glass-btn {
   background: var(--bg-pill-glass);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border-glass-bright);
   color: var(--text-primary);
   cursor: pointer;
@@ -175,6 +175,7 @@ html, body {
   letter-spacing: 0.05em;
   color: var(--text-primary);
   line-height: 1.1;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 .brand-text h1 span {
@@ -451,6 +452,7 @@ html, body {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .vector-sample {
@@ -520,6 +522,7 @@ html, body {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .btn-close {
@@ -579,6 +582,7 @@ html, body {
 .coord-value {
   color: var(--accent-cyan);
   font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 /* Compass Rose & Speed Gauge */
@@ -603,8 +607,8 @@ html, body {
   height: 78px;
   border-radius: 50%;
   border: 1px solid var(--border-glass-bright);
-  background: radial-gradient(circle, var(--bg-inset-glass) 0%, var(--bg-primary) 100%);
-  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.4), 0 0 12px var(--accent-cyan-glow);
+  background: radial-gradient(circle, var(--bg-inset-glass) 0%, rgba(2, 6, 18, 0.4) 100%);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.3), 0 0 12px var(--accent-cyan-glow);
 }
 
 .cardinal {
@@ -694,6 +698,7 @@ html, body {
   font-weight: 800;
   color: var(--text-primary);
   line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .stat-unit {
@@ -709,7 +714,7 @@ html, body {
   padding: 2px 6px;
   margin-top: 4px;
   border-radius: 4px;
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(16, 185, 129, 0.18);
   color: var(--accent-emerald);
 }
 
@@ -765,6 +770,7 @@ html, body {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 /* Route Section */
@@ -792,6 +798,7 @@ html, body {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .count-badge {
@@ -808,6 +815,7 @@ html, body {
   font-family: var(--font-mono);
   color: var(--accent-emerald);
   margin-left: 4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .route-instructions {
@@ -833,18 +841,20 @@ html, body {
 .route-table th {
   position: sticky;
   top: 0;
-  background: var(--bg-surface-glass);
+  background: rgba(6, 12, 28, 0.6);
   color: var(--text-muted);
   font-weight: 600;
   font-size: 10px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border-glass-subtle);
+  backdrop-filter: blur(8px);
 }
 
 .route-table td {
   padding: 6px 8px;
   border-bottom: 1px solid var(--border-glass-subtle);
   font-family: var(--font-mono);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .route-table tr:hover td {
@@ -877,13 +887,13 @@ html, body {
 }
 
 .btn-action.danger {
-  background: rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.22);
   color: #f87171;
-  border-color: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .btn-action.danger:hover {
-  background: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.4);
   color: #fff;
 }
 
@@ -958,7 +968,7 @@ html, body {
   height: 6px;
   -webkit-appearance: none;
   appearance: none;
-  background: var(--border-glass-bright);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
   outline: none;
   cursor: pointer;
@@ -1009,6 +1019,7 @@ html, body {
   font-size: 12px;
   font-weight: 700;
   color: var(--accent-cyan);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 /* Custom Scrollbar */
