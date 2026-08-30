@@ -29,8 +29,6 @@ let playbackSpeed = 800; // ms per frame
 const speedMultipliers = [1, 2, 4];
 let speedIndex = 0;
 
-// API Configurations
-const OWM_API_KEY = '2910d3209cc493d029029a8de276ce7e';
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
