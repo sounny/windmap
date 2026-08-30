@@ -198,7 +198,7 @@ class WindCanvasOverlay {
         const color = getWindColor(speed);
 
         // PROPORTIONAL VECTOR LENGTH: delicate small calm vectors, non-bolding uniform fine stroke
-        const len = Math.min(Math.max(4.5 + speed * 1.25, 5), 38);
+        const len = Math.min(Math.max(4.5 + speed * 0.85, 5), 42);
         const headLen = Math.min(Math.max(2.2 + speed * 0.15, 2.4), 7.0);
         const strokeWidth = 1.25; // Crisp uniform line weight (no bolding on strong winds)
 
@@ -360,13 +360,15 @@ function getBeaufortScale(knots) {
   return { force: 12, desc: 'Hurricane Force' };
 }
 
+// WMO / NOAA International Marine Velocity Color Scale
 function getWindColor(speedKnots) {
   const k = parseFloat(speedKnots);
-  if (k < 5) return '#10b981';   // Calm / Light (Emerald)
-  if (k < 10) return '#38bdf8';  // Light-Moderate (Cyan)
-  if (k < 15) return '#facc15';  // Moderate (Amber)
-  if (k < 20) return '#fb923c';  // Fresh (Orange)
-  return '#ef4444';              // Gale / Storm (Ruby Red)
+  if (k < 7)  return '#10b981';  // Light (< 7 kts, Force 0-2): Emerald
+  if (k < 16) return '#38bdf8';  // Moderate (7-15 kts, Force 3-4): Sky Cyan
+  if (k < 25) return '#facc15';  // Fresh (16-24 kts, Force 5-6): Amber Gold
+  if (k < 34) return '#fb923c';  // Near Gale (25-33 kts, Force 7): Vibrant Orange
+  if (k < 48) return '#ef4444';  // Gale (34-47 kts, Force 8-9): Ruby Red
+  return '#c084fc';              // Storm / Hurricane (>= 48 kts, Force 10-12): Neon Purple
 }
 
 function degToCardinal(deg) {
