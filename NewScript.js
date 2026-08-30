@@ -1404,7 +1404,7 @@ async function preloadGfsData() {
           availableDates = json.dates || Object.keys(json.vectors).sort();
           for (const d of availableDates) {
             const raw = json.vectors[d] || [];
-            forecastVectorsByDate[d] = generateGlobalWindField(d, raw);
+            forecastVectorsByDate[d] = new Float32Array(raw);
           }
           loaded = true;
         }
