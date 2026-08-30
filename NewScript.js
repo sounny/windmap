@@ -26,7 +26,8 @@ let currentDisplayVectors = null; // Float32Array
 
 let waypoints = []; // [{ index, lat, lng, speed, dir, gusts, pressure, temp, distToPrev, cumDist }]
 let routeInterpolatedPoints = []; // [{ lat, lng, distFromStart, legIndex, heading, speed, dir }]
-let currentUnit = 'knots'; // 'knots', 'mph', 'kmh', 'ms', 'bft'
+let currentUnit = 'knots';
+let currentDirConvention = localStorage.getItem('windmap_dir_convention') || 'from'; // 'from' (Meteorological) or 'to' (Flow) // 'knots', 'mph', 'kmh', 'ms', 'bft'
 let isPlaying = false;
 let playTimer = null;
 let playbackSpeed = 800; // ms per frame
@@ -375,6 +376,26 @@ function getWindColor(speedKnots) {
   if (k < 34) return '#fb923c';  // Near Gale (25-33 kts, Force 7): Vibrant Orange
   if (k < 48) return '#ef4444';  // Gale (34-47 kts, Force 8-9): Ruby Red
   return '#c084fc';              // Storm / Hurricane (>= 48 kts, Force 10-12): Neon Purple
+}
+
+
+function formatWindDirection(fromDeg) {
+  const normalizedFrom = ((fromDeg % 360) + 360) % 360;
+  if (currentDirConvention === 'to') {
+    const toDeg = (normalizedFrom + 180) % 360;
+    return {
+      deg: Math.round(toDeg),
+      cardinal: degToCardinal(toDeg),
+      mode: 'TO',
+      fullText: `${Math.round(toDeg)}° (${degToCardinal(toDeg)}) [TO]`
+    };
+  }
+  return {
+    deg: Math.round(normalizedFrom),
+    cardinal: degToCardinal(normalizedFrom),
+    mode: 'FROM',
+    fullText: `${Math.round(normalizedFrom)}° (${degToCardinal(normalizedFrom)}) [FROM]`
+  };
 }
 
 function degToCardinal(deg) {
@@ -879,19 +900,24 @@ async function handleMapClick(e) {
 
 function updateCompassGauge(weather) {
   const fromDeg = (weather.direction || 0) % 360;
-  // Flow direction (where the wind is blowing towards, matching map vectors):
   const toDeg = (fromDeg + 180) % 360;
 
-  // Rotate compass needle so the Cyan Arrow points in the exact flow direction of map vectors
-  // At 0 deg rotation, flow head points North (0 deg)
-  compassNeedle.style.transform = `rotate(${toDeg}deg)`;
+  // If in 'from' mode, needle points to origin angle (fromDeg)
+  // If in 'to' mode, needle points to flow destination (toDeg)
+  const rotationAngle = currentDirConvention === 'to' ? toDeg : fromDeg;
+  compassNeedle.style.transform = `rotate(${rotationAngle}deg)`;
 
-  bearingDegLabel.textContent = `${Math.round(fromDeg)}°`;
-  cardinalTextLabel.textContent = degToCardinal(fromDeg);
+  const dirData = formatWindDirection(fromDeg);
+  bearingDegLabel.textContent = `${dirData.deg}°`;
+  cardinalTextLabel.textContent = dirData.cardinal;
 
   const flowDegElem = document.getElementById('flowDegText');
   if (flowDegElem) {
-    flowDegElem.textContent = `${Math.round(toDeg)}° (${degToCardinal(toDeg)})`;
+    if (currentDirConvention === 'to') {
+      flowDegElem.innerHTML = `FROM <strong style="color:var(--accent-rose);">${Math.round(fromDeg)}° (${degToCardinal(fromDeg)})</strong>`;
+    } else {
+      flowDegElem.innerHTML = `BLOWS TO <strong style="color:var(--accent-cyan);">${Math.round(toDeg)}° (${degToCardinal(toDeg)})</strong>`;
+    }
   }
 
   windSpeedVal.textContent = convertWindSpeed(weather.speed);
@@ -927,7 +953,7 @@ function renderWaypointTable() {
       <tr>
         <td><strong>WP${wp.index}</strong></td>
         <td>${wp.lat.toFixed(2)}°, ${wp.lng.toFixed(2)}°</td>
-        <td><span style="color:${getWindColor(wp.speed)};font-weight:700;">${convertWindSpeed(wp.speed)}</span> @ ${Math.round(wp.dir)}°</td>
+        <td><span style="color:${getWindColor(wp.speed)};font-weight:700;">${convertWindSpeed(wp.speed)}</span> @ ${formatWindDirection(wp.dir).deg}° (${formatWindDirection(wp.dir).cardinal})</td>
         <td>${wp.distToPrev.toFixed(1)}</td>
       </tr>
     `;
@@ -1519,6 +1545,33 @@ function initEventListeners() {
   }
 
   // Basemap Vector / Satellite Toggle Switch
+  
+  // Direction Convention Toggle (FROM vs TO)
+  const btnDirFrom = document.getElementById('btnDirFrom');
+  const btnDirTo = document.getElementById('btnDirTo');
+
+  function setDirConvention(mode) {
+    currentDirConvention = mode;
+    localStorage.setItem('windmap_dir_convention', mode);
+    if (mode === 'to') {
+      if (btnDirTo) btnDirTo.classList.add('active');
+      if (btnDirFrom) btnDirFrom.classList.remove('active');
+    } else {
+      if (btnDirFrom) btnDirFrom.classList.add('active');
+      if (btnDirTo) btnDirTo.classList.remove('active');
+    }
+    renderWaypointTable();
+    if (waypoints.length > 0) {
+      updateCompassGauge(waypoints[waypoints.length - 1]);
+    }
+  }
+
+  if (btnDirFrom) btnDirFrom.addEventListener('click', () => setDirConvention('from'));
+  if (btnDirTo) btnDirTo.addEventListener('click', () => setDirConvention('to'));
+
+  // Initialize active button state from saved storage
+  setDirConvention(currentDirConvention);
+
   if (btnMapVector) btnMapVector.addEventListener('click', () => switchBasemapMode('vector'));
   if (btnMapSatellite) btnMapSatellite.addEventListener('click', () => switchBasemapMode('satellite'));
   if (themeToggleBtn) themeToggleBtn.addEventListener('click', toggleTheme);

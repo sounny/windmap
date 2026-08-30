@@ -1386,3 +1386,32 @@ html, body {
   color: var(--text-muted);
   letter-spacing: 0.04em;
 }
+
+/* Direction Convention Switch (FROM vs TO) */
+.dir-switch-container {
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+}
+
+.dir-switch-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dir-switch-btn.active {
+  background: var(--accent-cyan);
+  color: #fff;
+  box-shadow: 0 0 10px var(--accent-cyan-glow);
+}

@@ -30,7 +30,7 @@
     rel="stylesheet"
   />
 
-  <link rel="stylesheet" href="style.css?v=1788093839" />
+  <link rel="stylesheet" href="style.css?v=1788094996" />
 </head>
 <body>
   <!-- Top Navigation Translucent Glass HUD -->
@@ -89,6 +89,16 @@
         </button>
         <button id="btnMapSatellite" class="map-switch-btn" title="Satellite Oceans Imagery">
           <i class="fa-solid fa-satellite"></i> <span>Satellite</span>
+        </button>
+      </div>
+
+      <!-- Direction Convention Switcher (FROM vs TO) -->
+      <div class="dir-switch-container glass-pill" title="Wind Direction Convention: Meteorological (FROM) vs Oceanographic (BLOWS TO)">
+        <button id="btnDirFrom" class="dir-switch-btn active" data-dir-mode="from">
+          <span>FROM</span>
+        </button>
+        <button id="btnDirTo" class="dir-switch-btn" data-dir-mode="to">
+          <span>TO</span>
         </button>
       </div>
 
@@ -395,6 +405,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="NewScript.js?v=1788093839"></script>
+  <script src="NewScript.js?v=1788094996"></script>
 </body>
 </html>
