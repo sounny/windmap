@@ -1396,7 +1396,7 @@ async function preloadGfsData() {
           availableDates = json.dates || Object.keys(json.vectors).sort();
           for (const d of availableDates) {
             const raw = json.vectors[d] || [];
-            forecastVectorsByDate[d] = generateGlobalWindField(d, raw);
+            forecastVectorsByDate[d] = parseAuthenticGfsVectors(raw);
           }
           loaded = true;
         }
@@ -1413,7 +1413,7 @@ async function preloadGfsData() {
         d.setDate(today.getDate() + i);
         const ds = d.toISOString().split('T')[0];
         availableDates.push(ds);
-        forecastVectorsByDate[ds] = generateGlobalWindField(ds, []);
+        forecastVectorsByDate[ds] = new Float32Array(0);
       }
     }
 
@@ -1438,7 +1438,7 @@ async function preloadGfsData() {
       d.setDate(today.getDate() + i);
       const ds = d.toISOString().split('T')[0];
       availableDates.push(ds);
-      forecastVectorsByDate[ds] = generateGlobalWindField(ds, []);
+      forecastVectorsByDate[ds] = new Float32Array(0);
     }
     dateSlider.min = 0;
     dateSlider.max = availableDates.length - 1;
@@ -1455,7 +1455,7 @@ function updateWindDisplay(date) {
   if (!date) return;
   updateSelectedDateLabel(date);
 
-  const vectors = forecastVectorsByDate[date] || generateGlobalWindField(date);
+  const vectors = forecastVectorsByDate[date] || new Float32Array(0);
   currentDisplayVectors = vectors;
   if (canvasOverlay) {
     canvasOverlay.setVectors(vectors);
