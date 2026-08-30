@@ -1134,11 +1134,16 @@ async function preloadGfsData() {
 
     dateSlider.min = 0;
     dateSlider.max = availableDates.length - 1;
-    dateSlider.value = 0;
-    currentDateIndex = 0;
+
+    // Automatically align slider to TODAY's date on load
+    const todayUtc = new Date().toISOString().split('T')[0];
+    const todayIndex = availableDates.indexOf(todayUtc);
+    currentDateIndex = todayIndex !== -1 ? todayIndex : 0;
+    dateSlider.value = currentDateIndex;
     
-    updateSelectedDateLabel(availableDates[0]);
-    updateWindDisplay(availableDates[0]);
+    updateSelectedDateLabel(availableDates[currentDateIndex]);
+    updateWindDisplay(availableDates[currentDateIndex]);
+    console.log(`[Map Winds Pro] Live verification complete: aligned to ${availableDates[currentDateIndex]} (Today: ${todayUtc})`);
   } catch (err) {
     console.error('Error preloading GFS data:', err);
     const today = new Date();
@@ -1176,7 +1181,13 @@ function updateWindDisplay(date) {
 }
 
 function updateSelectedDateLabel(dateStr) {
-  selectedDateLabel.textContent = `${dateStr} 12:00 UTC`;
+  const todayUtc = new Date().toISOString().split('T')[0];
+  const isToday = dateStr === todayUtc;
+  if (isToday) {
+    selectedDateLabel.innerHTML = `${dateStr} <span class="live-dot-pulse">● LIVE NOW</span>`;
+  } else {
+    selectedDateLabel.textContent = `${dateStr} 12:00 UTC`;
+  }
 }
 
 function updateUtcClock() {

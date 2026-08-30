@@ -1066,3 +1066,26 @@ html, body {
   .dock-inner { padding: 6px 14px; gap: 10px; }
   .timestamp-hud { min-width: fit-content; }
 }
+
+/* Live Sync Pulse Badge */
+.live-dot-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-left: 6px;
+  animation: live-glow 1.8s infinite ease-in-out;
+}
+
+@keyframes live-glow {
+  0% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.2); }
+  50% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
+  100% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.2); }
+}
