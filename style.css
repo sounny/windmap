@@ -457,16 +457,16 @@ html, body {
 
 .vector-sample {
   display: inline-block;
-  height: 2.5px;
-  border-radius: 2px;
-  box-shadow: 0 0 6px currentColor;
+  height: 1.5px;
+  border-radius: 1px;
+  box-shadow: 0 0 4px currentColor;
 }
 
-.vector-sample.s-calm     { width: 12px; background: #10b981; color: #10b981; }
-.vector-sample.s-light    { width: 18px; background: #38bdf8; color: #38bdf8; }
-.vector-sample.s-moderate { width: 25px; background: #facc15; color: #facc15; }
-.vector-sample.s-fresh    { width: 32px; background: #fb923c; color: #fb923c; }
-.vector-sample.s-gale     { width: 40px; background: #ef4444; color: #ef4444; }
+.vector-sample.s-calm     { width: 6px; background: #10b981; color: #10b981; }
+.vector-sample.s-light    { width: 12px; background: #38bdf8; color: #38bdf8; }
+.vector-sample.s-moderate { width: 19px; background: #facc15; color: #facc15; }
+.vector-sample.s-fresh    { width: 27px; background: #fb923c; color: #fb923c; }
+.vector-sample.s-gale     { width: 36px; background: #ef4444; color: #ef4444; }
 
 .legend-footer {
   margin-top: 8px;

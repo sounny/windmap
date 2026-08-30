@@ -197,10 +197,10 @@ class WindCanvasOverlay {
         const dir = vectors[idx + 3];
         const color = getWindColor(speed);
 
-        // PROPORTIONAL VECTOR LENGTH
-        const len = Math.min(Math.max(10 + speed * 1.25, 11), 44);
-        const headLen = Math.min(Math.max(4 + speed * 0.2, 4.5), 9.5);
-        const strokeWidth = Math.min(Math.max(1.2 + speed * 0.04, 1.2), 2.6);
+        // PROPORTIONAL VECTOR LENGTH: delicate small calm vectors, non-bolding uniform fine stroke
+        const len = Math.min(Math.max(4.5 + speed * 1.25, 5), 38);
+        const headLen = Math.min(Math.max(2.2 + speed * 0.15, 2.4), 7.0);
+        const strokeWidth = 1.25; // Crisp uniform line weight (no bolding on strong winds)
 
         const angle = (dir - 90) * toRad;
         const endX = x + len * Math.cos(angle);
@@ -226,7 +226,7 @@ class WindCanvasOverlay {
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.arc(x, y, strokeWidth * 0.75, 0, Math.PI * 2);
+        ctx.arc(x, y, 0.9, 0, Math.PI * 2);
         ctx.fill();
       }
     }
