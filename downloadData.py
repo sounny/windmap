@@ -152,28 +152,36 @@ def grib_to_dataframe(grib_files: list[Path]) -> pd.DataFrame:
 
 
 def write_outputs(data: pd.DataFrame) -> None:
+	# Downsample to 1.0 deg grid for lightning-fast web delivery (< 400 KB)
+	filtered = data[(data["latitude"] % 1.0 == 0) & (data["longitude"] % 1.0 == 0)].copy()
+	if filtered.empty:
+		filtered = data
+
 	features = []
-	for row in data.itertuples(index=False):
+	by_date = {}
+	for row in filtered.itertuples(index=False):
+		d = str(row.date)
+		if d not in by_date:
+			by_date[d] = []
+		by_date[d].extend([round(float(row.latitude), 2), round(float(row.longitude), 2), round(float(row.WS), 1), round(float(row.WD), 1)])
 		features.append(
 			{
 				"type": "Feature",
 				"geometry": {
 					"type": "Point",
-					"coordinates": [float(row.longitude), float(row.latitude)],
+					"coordinates": [round(float(row.longitude), 2), round(float(row.latitude), 2)],
 				},
 				"properties": {
-					"time": row.time,
-					"date": row.date,
-					"ugrd10m": round(float(row.ugrd10m), 4),
-					"vgrd10m": round(float(row.vgrd10m), 4),
-					"WS": round(float(row.WS), 4),
-					"WD": round(float(row.WD), 2),
+					"date": d,
+					"WS": round(float(row.WS), 1),
+					"WD": round(float(row.WD), 1),
 				},
 			}
 		)
 
 	geojson = {"type": "FeatureCollection", "features": features}
-	GEOJSON_OUTPUT_FILE.write_text(json.dumps(geojson))
+	GEOJSON_OUTPUT_FILE.write_text(json.dumps(geojson, separators=(',', ':')))
+	Path("forecast.json").write_text(json.dumps({"dates": sorted(by_date.keys()), "vectors": by_date}, separators=(',', ':')))
 
 
 def main() -> None:

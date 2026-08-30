@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Map Winds Pro | Global Marine & Aviation Wind Forecast Cockpit</title>
-  <link rel="icon" type="image/png" href="favicon.png" />
   
   <!-- Leaflet GIS Engine -->
   <link
@@ -29,10 +28,9 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Top Navigation Glassmorphic HUD -->
+  <!-- Top Navigation Translucent Glass HUD -->
   <header class="top-nav glass-panel">
     <div class="brand">
-      <img src="app_icon.png" alt="Map Winds Logo" class="brand-logo-img" />
       <div class="brand-text">
         <h1>MAP WINDS <span>PRO</span></h1>
         <span class="subtext">Global Ocean & Aviation Wind Telemetry</span>
@@ -102,7 +100,7 @@
         <span>Loading Global Telemetry...</span>
       </div>
 
-      <!-- Glassmorphic Legend Overlay -->
+      <!-- Translucent Glass Legend Overlay -->
       <div class="map-legend glass-panel">
         <div class="legend-header">
           <i class="fa-solid fa-wind"></i>
@@ -132,12 +130,12 @@
           </div>
         </div>
         <div class="legend-footer">
-          <span>* Vector length & stroke scale with wind speed (10–44px)</span>
+          <span>* Hover route line to interpolate wind</span>
         </div>
       </div>
     </div>
 
-    <!-- Floating Right Glassmorphic Telemetry & Route Planning Drawer -->
+    <!-- Floating Right Translucent Glass Telemetry & Route Planning Drawer -->
     <aside id="telemetryDrawer" class="telemetry-drawer glass-panel">
       <!-- Drawer Header -->
       <div class="drawer-header">
@@ -150,11 +148,11 @@
         </button>
       </div>
 
-      <!-- Live Point Weather Card -->
+      <!-- Live Point / Route Line Weather Card -->
       <section class="telemetry-card glass-card">
         <div class="card-header">
-          <span class="tag">ACTIVE INSPECTOR</span>
-          <span id="telemetrySource" class="source-badge glass-badge">Click Map to Inspect</span>
+          <span id="inspectorModeLabel" class="tag">ACTIVE INSPECTOR</span>
+          <span id="telemetrySource" class="source-badge glass-badge">Click Map or Hover Route</span>
         </div>
 
         <div class="coords-display glass-inset">
@@ -165,6 +163,10 @@
           <div class="coord-item">
             <span class="coord-label">Decimal Degrees:</span>
             <span id="coordDD" class="coord-value">--.----, --.----</span>
+          </div>
+          <div id="routeProgressRow" class="coord-item" style="display: none;">
+            <span class="coord-label">Route Progress:</span>
+            <span id="routeProgressVal" class="coord-value" style="color: var(--accent-emerald);">-- NM</span>
           </div>
         </div>
 
@@ -212,6 +214,22 @@
             </div>
           </div>
         </div>
+
+        <!-- Along-Route Relative Wind & Sailing Point HUD -->
+        <div id="routeRelativeHud" class="route-relative-hud glass-inset" style="display: none;">
+          <div class="rel-stat">
+            <span class="rel-label"><i class="fa-solid fa-location-arrow"></i> ROUTE HEADING</span>
+            <strong id="routeHeadingVal">--°</strong>
+          </div>
+          <div class="rel-stat">
+            <span class="rel-label"><i class="fa-solid fa-sailboat"></i> POINT OF SAIL</span>
+            <strong id="pointOfSailVal" style="color: var(--accent-cyan);">--</strong>
+          </div>
+          <div class="rel-stat">
+            <span class="rel-label"><i class="fa-solid fa-arrow-down-up-across-line"></i> RELATIVE</span>
+            <strong id="relativeWindVal">--</strong>
+          </div>
+        </div>
       </section>
 
       <!-- Route Planner & Waypoints Ledger -->
@@ -229,7 +247,7 @@
         </div>
 
         <p class="route-instructions">
-          <i class="fa-solid fa-circle-info"></i> Click anywhere on the map to drop navigation waypoints and calculate Great-Circle routing.
+          <i class="fa-solid fa-circle-info"></i> Click map to drop waypoints. <strong>Hover anywhere along the route line</strong> to inspect interpolated wind telemetry along the voyage!
         </p>
 
         <!-- Waypoints Table Container -->
