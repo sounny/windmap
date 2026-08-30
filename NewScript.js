@@ -1071,33 +1071,318 @@ function toggleSpeed() {
 // ============================================================================
 // 11. Search & Preloading
 // ============================================================================
-async function handleLocationSearch() {
-  const query = locationSearch.value.trim();
+// ============================================================================
+// 10. Pro Search & Typeahead Autocomplete Geocoder Engine
+// ============================================================================
+let searchDebounceTimer = null;
+let searchTargetMarker = null;
+let activeSuggestionIndex = -1;
+
+const searchContainer = document.querySelector('.search-container');
+const searchDropdown = document.getElementById('searchDropdown');
+const searchSuggestionsList = document.getElementById('searchSuggestionsList');
+const searchClearBtn = document.getElementById('searchClearBtn');
+
+function initSearchEngine() {
+  if (!locationSearch) return;
+
+  locationSearch.addEventListener('input', e => {
+    const val = e.target.value.trim();
+    if (searchClearBtn) {
+      searchClearBtn.style.display = val.length > 0 ? 'block' : 'none';
+    }
+
+    clearTimeout(searchDebounceTimer);
+    if (val.length >= 2) {
+      searchDebounceTimer = setTimeout(() => fetchSearchSuggestions(val), 180);
+    } else if (val.length === 0) {
+      showSearchPresetsOnly();
+    } else {
+      if (searchDropdown) searchDropdown.style.display = 'none';
+    }
+  });
+
+  locationSearch.addEventListener('focus', () => {
+    if (locationSearch.value.trim().length >= 2) {
+      fetchSearchSuggestions(locationSearch.value.trim());
+    } else {
+      showSearchPresetsOnly();
+    }
+  });
+
+  if (searchClearBtn) {
+    searchClearBtn.addEventListener('click', () => {
+      locationSearch.value = '';
+      searchClearBtn.style.display = 'none';
+      locationSearch.focus();
+      showSearchPresetsOnly();
+    });
+  }
+
+  if (searchBtn) {
+    searchBtn.addEventListener('click', () => executeImmediateSearch(locationSearch.value.trim()));
+  }
+
+  locationSearch.addEventListener('keydown', handleSearchKeyboardNavigation);
+
+  document.addEventListener('click', e => {
+    if (searchContainer && !searchContainer.contains(e.target)) {
+      if (searchDropdown) searchDropdown.style.display = 'none';
+    }
+  });
+
+  document.querySelectorAll('.preset-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const lat = parseFloat(chip.dataset.lat);
+      const lon = parseFloat(chip.dataset.lon);
+      const name = chip.dataset.name;
+      locationSearch.value = name;
+      if (searchClearBtn) searchClearBtn.style.display = 'block';
+      if (searchDropdown) searchDropdown.style.display = 'none';
+      flyToLocation(lat, lon, 7, name);
+    });
+  });
+}
+
+function showSearchPresetsOnly() {
+  if (!searchDropdown) return;
+  searchSuggestionsList.innerHTML = '';
+  searchDropdown.style.display = 'flex';
+  activeSuggestionIndex = -1;
+}
+
+async function fetchSearchSuggestions(query) {
   if (!query) return;
 
-  const coordMatch = query.match(/^([-+]?\d*\.?\d+)[,\s]+([-+]?\d*\.?\d+)$/);
-  if (coordMatch) {
-    const lat = parseFloat(coordMatch[1]);
-    const lon = parseFloat(coordMatch[2]);
-    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
-      map.setView([lat, lon], 6);
-      return;
-    }
+  const parsedCoords = parseCoordinates(query);
+  const suggestions = [];
+
+  if (parsedCoords) {
+    suggestions.push({
+      name: `Coordinates: ${parsedCoords.lat.toFixed(4)}°, ${parsedCoords.lon.toFixed(4)}°`,
+      coordsStr: toDMS(parsedCoords.lat, parsedCoords.lon),
+      lat: parsedCoords.lat,
+      lon: parsedCoords.lon,
+      icon: 'fa-location-crosshairs'
+    });
   }
 
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
-    const results = await res.json();
-    if (results && results.length > 0) {
-      const { lat, lon } = results[0];
-      map.setView([parseFloat(lat), parseFloat(lon)], 6);
-    } else {
-      alert(`Location "${query}" not found.`);
+    const omUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`;
+    const res = await fetch(omUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.results) {
+        data.results.forEach(r => {
+          const country = r.country ? `, ${r.country}` : '';
+          const admin = r.admin1 ? ` (${r.admin1})` : '';
+          suggestions.push({
+            name: `${r.name}${admin}${country}`,
+            coordsStr: `${r.latitude.toFixed(2)}°, ${r.longitude.toFixed(2)}°`,
+            lat: r.latitude,
+            lon: r.longitude,
+            icon: r.feature_code && r.feature_code.startsWith('P') ? 'fa-city' : 'fa-anchor'
+          });
+        });
+      }
     }
   } catch (err) {
-    console.error('Search error:', err);
+    console.warn('Open-Meteo geocode fallback:', err);
+  }
+
+  if (suggestions.length < 3) {
+    try {
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=4`;
+      const res = await fetch(nomUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          data.forEach(r => {
+            suggestions.push({
+              name: r.display_name.split(',').slice(0, 3).join(','),
+              coordsStr: `${parseFloat(r.lat).toFixed(2)}°, ${parseFloat(r.lon).toFixed(2)}°`,
+              lat: parseFloat(r.lat),
+              lon: parseFloat(r.lon),
+              icon: 'fa-map-pin'
+            });
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Nominatim geocode fallback:', err);
+    }
+  }
+
+  renderSearchSuggestions(suggestions);
+}
+
+function renderSearchSuggestions(suggestions) {
+  if (!searchDropdown || !searchSuggestionsList) return;
+  activeSuggestionIndex = -1;
+
+  if (suggestions.length === 0) {
+    searchSuggestionsList.innerHTML = `
+      <div style="padding: 8px 10px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+        No locations found for this query.
+      </div>
+    `;
+    searchDropdown.style.display = 'flex';
+    return;
+  }
+
+  let html = '';
+  suggestions.forEach((s, idx) => {
+    html += `
+      <button class="suggestion-item" data-index="${idx}" data-lat="${s.lat}" data-lon="${s.lon}" data-name="${s.name}">
+        <i class="fa-solid ${s.icon} suggestion-icon"></i>
+        <div class="suggestion-info">
+          <span class="suggestion-name">${s.name}</span>
+          <span class="suggestion-coords">${s.coordsStr}</span>
+        </div>
+      </button>
+    `;
+  });
+
+  searchSuggestionsList.innerHTML = html;
+  searchDropdown.style.display = 'flex';
+
+  searchSuggestionsList.querySelectorAll('.suggestion-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lat = parseFloat(btn.dataset.lat);
+      const lon = parseFloat(btn.dataset.lon);
+      const name = btn.dataset.name;
+      locationSearch.value = name;
+      searchDropdown.style.display = 'none';
+      flyToLocation(lat, lon, 7, name);
+    });
+  });
+}
+
+function handleSearchKeyboardNavigation(e) {
+  if (!searchDropdown || searchDropdown.style.display === 'none') {
+    if (e.key === 'Enter') {
+      executeImmediateSearch(locationSearch.value.trim());
+    }
+    return;
+  }
+
+  const items = searchSuggestionsList.querySelectorAll('.suggestion-item');
+  if (items.length === 0) {
+    if (e.key === 'Enter') executeImmediateSearch(locationSearch.value.trim());
+    return;
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    activeSuggestionIndex = (activeSuggestionIndex + 1) % items.length;
+    highlightSuggestion(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activeSuggestionIndex = (activeSuggestionIndex - 1 + items.length) % items.length;
+    highlightSuggestion(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeSuggestionIndex >= 0 && activeSuggestionIndex < items.length) {
+      items[activeSuggestionIndex].click();
+    } else {
+      executeImmediateSearch(locationSearch.value.trim());
+    }
+  } else if (e.key === 'Escape') {
+    searchDropdown.style.display = 'none';
   }
 }
+
+function highlightSuggestion(items) {
+  items.forEach((item, i) => {
+    if (i === activeSuggestionIndex) {
+      item.classList.add('active');
+      item.scrollIntoView({ block: 'nearest' });
+    } else {
+      item.classList.remove('active');
+    }
+  });
+}
+
+async function executeImmediateSearch(query) {
+  if (!query) return;
+  if (searchDropdown) searchDropdown.style.display = 'none';
+
+  const coords = parseCoordinates(query);
+  if (coords) {
+    flyToLocation(coords.lat, coords.lon, 7, `Location (${coords.lat.toFixed(2)}°, ${coords.lon.toFixed(2)}°)`);
+    return;
+  }
+
+  try {
+    const omUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`;
+    const res = await fetch(omUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.results && data.results.length > 0) {
+        const r = data.results[0];
+        flyToLocation(r.latitude, r.longitude, 7, r.name);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('Direct search error:', err);
+  }
+
+  alert(`Location "${query}" not found. Try entering lat, lon (e.g. 32.5, -64.8).`);
+}
+
+function parseCoordinates(str) {
+  const decMatch = str.match(/^([-+]?\d*\.?\d+)[,\s]+([-+]?\d*\.?\d+)$/);
+  if (decMatch) {
+    const lat = parseFloat(decMatch[1]);
+    const lon = parseFloat(decMatch[2]);
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return { lat, lon };
+    }
+  }
+  return null;
+}
+
+async function flyToLocation(lat, lon, zoom = 7, title = '') {
+  map.flyTo([lat, lon], zoom, { duration: 1.4, easeLinearity: 0.25 });
+
+  if (searchTargetMarker) {
+    map.removeLayer(searchTargetMarker);
+  }
+  searchTargetMarker = L.circleMarker([lat, lon], {
+    pane: 'routePane',
+    radius: 9,
+    fillColor: '#38bdf8',
+    color: '#ffffff',
+    weight: 3,
+    opacity: 1,
+    fillOpacity: 0.8
+  }).addTo(map);
+
+  searchTargetMarker.bindPopup(`
+    <div style="font-family: var(--font-main); font-size: 12px; color: #fff;">
+      <strong style="color: #38bdf8;">${title || 'Searched Location'}</strong><br/>
+      ${toDMS(lat, lon)}
+    </div>
+  `).openPopup();
+
+  if (telemetryDrawer.classList.contains('closed')) {
+    telemetryDrawer.classList.remove('closed');
+  }
+
+  inspectorModeLabel.textContent = 'SEARCHED LOCATION';
+  routeProgressRow.style.display = 'none';
+  routeRelativeHud.style.display = 'none';
+
+  coordDMS.textContent = toDMS(lat, lon);
+  coordDD.textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+  telemetrySource.textContent = 'Querying Live Telemetry...';
+
+  const weather = await fetchWeatherTelemetry(lat, lon);
+  telemetrySource.textContent = weather.source;
+  updateCompassGauge(weather);
+}
+
 
 async function preloadGfsData() {
   loadingIndicator.style.display = 'flex';
@@ -1241,12 +1526,8 @@ function initEventListeners() {
     });
   }
 
-  if (searchBtn) searchBtn.addEventListener('click', handleLocationSearch);
-  if (locationSearch) {
-    locationSearch.addEventListener('keypress', e => {
-      if (e.key === 'Enter') handleLocationSearch();
-    });
-  }
+  initSearchEngine();
+
 
   if (resetRouteBtn) resetRouteBtn.addEventListener('click', clearRoute);
   if (exportGpxBtn) exportGpxBtn.addEventListener('click', exportRouteGpx);

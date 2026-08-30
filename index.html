@@ -37,15 +37,42 @@
       </div>
     </div>
 
-    <!-- Search / Geocoder -->
-    <div class="search-box glass-input">
-      <i class="fa-solid fa-magnifying-glass search-icon"></i>
-      <input
-        type="text"
-        id="locationSearch"
-        placeholder="Search port, city, or lat, lon (e.g. 32.5, -64.8)..."
-      />
-      <button id="searchBtn" title="Search Location"><i class="fa-solid fa-arrow-right"></i></button>
+    <!-- Pro Search / Geocoder HUD with Autocomplete -->
+    <div class="search-container">
+      <div class="search-box glass-pill">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input
+          type="text"
+          id="locationSearch"
+          placeholder="Search port, island, city, or coords (32.5, -64.8)..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="searchClearBtn" class="search-clear-btn" style="display: none;" title="Clear search">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+        <button id="searchBtn" class="search-action-btn" title="Search Location">
+          <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </div>
+
+      <!-- Autocomplete Dropdown Menu -->
+      <div id="searchDropdown" class="search-dropdown glass-panel" style="display: none;">
+        <div id="searchSuggestionsList" class="suggestions-list"></div>
+        <div class="search-presets">
+          <span class="preset-title"><i class="fa-solid fa-anchor"></i> POPULAR MARITIME REGIONS</span>
+          <div class="preset-chips">
+            <button class="preset-chip" data-lat="32.3" data-lon="-64.8" data-name="Bermuda">Bermuda</button>
+            <button class="preset-chip" data-lat="36.1" data-lon="-5.3" data-name="Gibraltar">Gibraltar</button>
+            <button class="preset-chip" data-lat="25.0" data-lon="-71.0" data-name="Bermuda Triangle">Bermuda Triangle</button>
+            <button class="preset-chip" data-lat="50.0" data-lon="-3.0" data-name="English Channel">English Channel</button>
+            <button class="preset-chip" data-lat="37.8" data-lon="-122.4" data-name="San Francisco Bay">San Francisco</button>
+            <button class="preset-chip" data-lat="21.3" data-lon="-157.8" data-name="Hawaii / Oahu">Hawaii</button>
+            <button class="preset-chip" data-lat="18.4" data-lon="-66.1" data-name="San Juan, Caribbean">Caribbean</button>
+            <button class="preset-chip" data-lat="-55.9" data-lon="-67.3" data-name="Cape Horn">Cape Horn</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Telemetry & Controls Quick Bar -->
