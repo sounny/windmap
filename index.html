@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Map Winds Pro | Marine & Aviation Wind Forecast Cockpit</title>
+  <title>Map Winds Pro | Global Marine & Aviation Wind Forecast Cockpit</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
   
   <!-- Leaflet GIS Engine -->
   <link
@@ -28,61 +29,64 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Top Navigation HUD -->
-  <header class="top-nav">
+  <!-- Top Navigation Glassmorphic HUD -->
+  <header class="top-nav glass-panel">
     <div class="brand">
-      <div class="brand-icon">
-        <i class="fa-solid fa-compass-drafting"></i>
-      </div>
+      <img src="app_icon.png" alt="Map Winds Logo" class="brand-logo-img" />
       <div class="brand-text">
         <h1>MAP WINDS <span>PRO</span></h1>
-        <span class="subtext">NOAA GFS 0.25° Global Ocean Wind Telemetry</span>
+        <span class="subtext">Global Ocean & Aviation Wind Telemetry</span>
       </div>
     </div>
 
     <!-- Search / Geocoder -->
-    <div class="search-box">
+    <div class="search-box glass-input">
       <i class="fa-solid fa-magnifying-glass search-icon"></i>
       <input
         type="text"
         id="locationSearch"
-        placeholder="Search city, port, or lat, lon (e.g. 32.5, -64.8)..."
+        placeholder="Search port, city, or lat, lon (e.g. 32.5, -64.8)..."
       />
       <button id="searchBtn" title="Search Location"><i class="fa-solid fa-arrow-right"></i></button>
     </div>
 
     <!-- Telemetry & Controls Quick Bar -->
     <div class="nav-controls">
+      <!-- Basemap Segmented Toggle Switch: Vector vs Satellite -->
+      <div class="map-switch-container glass-pill">
+        <button id="btnMapVector" class="map-switch-btn active" title="Vector Nautical Chart">
+          <i class="fa-solid fa-map"></i> <span>Vector</span>
+        </button>
+        <button id="btnMapSatellite" class="map-switch-btn" title="Satellite Oceans Imagery">
+          <i class="fa-solid fa-satellite"></i> <span>Satellite</span>
+        </button>
+      </div>
+
       <!-- Unit Switcher -->
-      <div class="control-group">
-        <label for="unitSelect"><i class="fa-solid fa-gauge-high"></i> Units:</label>
+      <div class="control-group glass-pill">
+        <label for="unitSelect"><i class="fa-solid fa-gauge-high"></i></label>
         <select id="unitSelect">
           <option value="knots" selected>Knots (kts)</option>
-          <option value="mph">Miles/hr (mph)</option>
-          <option value="kmh">Km/hr (km/h)</option>
-          <option value="ms">Meters/s (m/s)</option>
-          <option value="bft">Beaufort (Bft)</option>
+          <option value="mph">MPH</option>
+          <option value="kmh">Km/h</option>
+          <option value="ms">m/s</option>
+          <option value="bft">Beaufort</option>
         </select>
       </div>
 
-      <!-- Basemap Switcher -->
-      <div class="control-group">
-        <label for="basemapSelect"><i class="fa-solid fa-layer-group"></i> Map:</label>
-        <select id="basemapSelect">
-          <option value="dark" selected>Dark Nautical</option>
-          <option value="satellite">Satellite Oceans</option>
-          <option value="voyager">Voyager Navigation</option>
-        </select>
-      </div>
+      <!-- Theme Switcher (Light / Dark Mode) -->
+      <button id="themeToggleBtn" class="btn-icon glass-btn" title="Toggle Light / Dark Mode">
+        <i id="themeIcon" class="fa-solid fa-moon"></i>
+      </button>
 
       <!-- Live UTC HUD -->
-      <div class="utc-clock">
+      <div class="utc-clock glass-pill">
         <span class="clock-label">UTC TIME</span>
         <span id="utcTimeDisplay" class="clock-time">--:--:--</span>
       </div>
 
       <!-- Sidebar Toggle (Mobile/Desktop) -->
-      <button id="sidebarToggle" class="btn-icon" title="Toggle Route & Telemetry Drawer">
+      <button id="sidebarToggle" class="btn-icon glass-btn" title="Toggle Route & Telemetry Drawer">
         <i class="fa-solid fa-bars-staggered"></i>
       </button>
     </div>
@@ -93,64 +97,67 @@
     <!-- Map Canvas -->
     <div id="map">
       <!-- Loading Overlay -->
-      <div id="loadingIndicator" class="map-loader">
+      <div id="loadingIndicator" class="map-loader glass-pill">
         <div class="spinner"></div>
-        <span>Loading NOAA GFS Telemetry...</span>
+        <span>Loading Global Telemetry...</span>
       </div>
 
-      <!-- Legend Overlay -->
-      <div class="map-legend">
+      <!-- Glassmorphic Legend Overlay -->
+      <div class="map-legend glass-panel">
         <div class="legend-header">
           <i class="fa-solid fa-wind"></i>
-          <span>WIND VELOCITY</span>
-          <span id="legendUnitBadge" class="badge">knots</span>
+          <span>WIND VECTOR SCALE</span>
+          <span id="legendUnitBadge" class="badge glass-badge">knots</span>
         </div>
         <div class="legend-scale">
           <div class="scale-item">
-            <span class="scale-dot" style="background: #10b981;"></span>
-            <span class="scale-label">&lt; 5 (Calm)</span>
+            <span class="vector-sample s-calm"></span>
+            <span class="scale-label">&lt; 5 kts (Calm)</span>
           </div>
           <div class="scale-item">
-            <span class="scale-dot" style="background: #38bdf8;"></span>
-            <span class="scale-label">5 - 10 (Light)</span>
+            <span class="vector-sample s-light"></span>
+            <span class="scale-label">5 - 10 kts (Light)</span>
           </div>
           <div class="scale-item">
-            <span class="scale-dot" style="background: #facc15;"></span>
-            <span class="scale-label">10 - 15 (Moderate)</span>
+            <span class="vector-sample s-moderate"></span>
+            <span class="scale-label">10 - 15 kts (Moderate)</span>
           </div>
           <div class="scale-item">
-            <span class="scale-dot" style="background: #fb923c;"></span>
-            <span class="scale-label">15 - 20 (Fresh)</span>
+            <span class="vector-sample s-fresh"></span>
+            <span class="scale-label">15 - 20 kts (Fresh)</span>
           </div>
           <div class="scale-item">
-            <span class="scale-dot" style="background: #ef4444;"></span>
-            <span class="scale-label">&gt; 20 (Gale/Storm)</span>
+            <span class="vector-sample s-gale"></span>
+            <span class="scale-label">&gt; 20 kts (Gale/Storm)</span>
           </div>
+        </div>
+        <div class="legend-footer">
+          <span>* Vector length & stroke scale with wind speed (10–44px)</span>
         </div>
       </div>
     </div>
 
-    <!-- Floating Right Telemetry & Route Planning Drawer -->
-    <aside id="telemetryDrawer" class="telemetry-drawer">
+    <!-- Floating Right Glassmorphic Telemetry & Route Planning Drawer -->
+    <aside id="telemetryDrawer" class="telemetry-drawer glass-panel">
       <!-- Drawer Header -->
       <div class="drawer-header">
         <div class="drawer-title">
           <i class="fa-solid fa-compass"></i>
           <h2>Telemetry & Navigation</h2>
         </div>
-        <button id="closeDrawerBtn" class="btn-close" title="Close Panel">
+        <button id="closeDrawerBtn" class="btn-close glass-btn" title="Close Panel">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
       <!-- Live Point Weather Card -->
-      <section class="telemetry-card">
+      <section class="telemetry-card glass-card">
         <div class="card-header">
           <span class="tag">ACTIVE INSPECTOR</span>
-          <span id="telemetrySource" class="source-badge">Click Map to Inspect</span>
+          <span id="telemetrySource" class="source-badge glass-badge">Click Map to Inspect</span>
         </div>
 
-        <div class="coords-display">
+        <div class="coords-display glass-inset">
           <div class="coord-item">
             <span class="coord-label">Coordinates (DMS):</span>
             <span id="coordDMS" class="coord-value">--° --' --" N / --° --' --" W</span>
@@ -164,7 +171,7 @@
         <!-- Compass Rose & Speed Gauge -->
         <div class="wind-gauge-container">
           <div class="compass-rose">
-            <div class="compass-ring">
+            <div class="compass-ring glass-compass">
               <span class="cardinal n">N</span>
               <span class="cardinal e">E</span>
               <span class="cardinal s">S</span>
@@ -173,14 +180,14 @@
                 <div class="needle-head"></div>
               </div>
             </div>
-            <div class="bearing-badge">
+            <div class="bearing-badge glass-badge">
               <span id="bearingDeg">0°</span>
               <span id="cardinalText">CALM</span>
             </div>
           </div>
 
           <div class="gauge-stats">
-            <div class="stat-box primary">
+            <div class="stat-box primary glass-inset">
               <span class="stat-label">WIND SPEED</span>
               <div class="stat-value-group">
                 <span id="windSpeedVal" class="stat-value">--</span>
@@ -190,15 +197,15 @@
             </div>
 
             <div class="stat-row">
-              <div class="stat-mini">
+              <div class="stat-mini glass-inset">
                 <span class="mini-label">GUSTS</span>
                 <span id="gustSpeedVal" class="mini-val">-- kts</span>
               </div>
-              <div class="stat-mini">
+              <div class="stat-mini glass-inset">
                 <span class="mini-label">PRESSURE</span>
                 <span id="pressureVal" class="mini-val">-- hPa</span>
               </div>
-              <div class="stat-mini">
+              <div class="stat-mini glass-inset">
                 <span class="mini-label">TEMP</span>
                 <span id="tempVal" class="mini-val">-- °C</span>
               </div>
@@ -213,7 +220,7 @@
           <div class="title-with-count">
             <i class="fa-solid fa-route"></i>
             <h3>Route Waypoints</h3>
-            <span id="waypointCountBadge" class="count-badge">0 WP</span>
+            <span id="waypointCountBadge" class="count-badge glass-badge">0 WP</span>
           </div>
           <div class="total-distance">
             <span>Total Dist:</span>
@@ -226,7 +233,7 @@
         </p>
 
         <!-- Waypoints Table Container -->
-        <div class="table-scroll-container">
+        <div class="table-scroll-container glass-inset">
           <table class="route-table">
             <thead>
               <tr>
@@ -246,13 +253,13 @@
 
         <!-- Route Action Toolbar -->
         <div class="route-actions">
-          <button id="resetRoute" class="btn-action danger" type="button">
+          <button id="resetRoute" class="btn-action danger glass-btn" type="button">
             <i class="fa-solid fa-trash-can"></i> Clear Route
           </button>
-          <button id="exportGpx" class="btn-action secondary" type="button">
+          <button id="exportGpx" class="btn-action secondary glass-btn" type="button">
             <i class="fa-solid fa-file-arrow-down"></i> Export GPX
           </button>
-          <button id="exportGeoJson" class="btn-action secondary" type="button">
+          <button id="exportGeoJson" class="btn-action secondary glass-btn" type="button">
             <i class="fa-solid fa-code"></i> GeoJSON
           </button>
         </div>
@@ -261,19 +268,19 @@
 
     <!-- Floating Bottom Forecast Timeline Scrubber Dock -->
     <div class="timeline-dock">
-      <div class="dock-inner">
+      <div class="dock-inner glass-panel">
         <!-- Playback Controls -->
         <div class="playback-controls">
-          <button id="prevDayBtn" class="btn-dock" title="Previous Forecast Interval">
+          <button id="prevDayBtn" class="btn-dock glass-btn" title="Previous Forecast Interval">
             <i class="fa-solid fa-backward-step"></i>
           </button>
           <button id="playBtn" class="btn-dock play-btn" title="Auto-Play Forecast Timeline">
             <i class="fa-solid fa-play"></i>
           </button>
-          <button id="nextDayBtn" class="btn-dock" title="Next Forecast Interval">
+          <button id="nextDayBtn" class="btn-dock glass-btn" title="Next Forecast Interval">
             <i class="fa-solid fa-forward-step"></i>
           </button>
-          <button id="speedMultiplierBtn" class="btn-dock speed-badge" title="Playback Speed">
+          <button id="speedMultiplierBtn" class="btn-dock speed-badge glass-btn" title="Playback Speed">
             1x
           </button>
         </div>
