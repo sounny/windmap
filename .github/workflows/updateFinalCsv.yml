@@ -1,8 +1,9 @@
-name: Run Daily NOAA GFS Data Ingestion
+name: NOAA GFS Model Ingestion & Telemetry Refresh
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    # Run every 6 hours matching NOAA GFS forecast cycles (00Z, 06Z, 12Z, 18Z)
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +37,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add forecast.geojson
-          git commit -m "Update NOAA GFS forecast telemetry [skip ci]" || echo "No changes to commit"
+          git add forecast.json forecast.geojson
+          git commit -m "chore(data): refresh NOAA GFS forecast telemetry [skip ci]" || echo "No changes to commit"
           git push

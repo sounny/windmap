@@ -1,0 +1,70 @@
+name: Hourly Repository Health & Quality Check
+
+on:
+  schedule:
+    # Run every hour on the hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hourly-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate JavaScript Syntax
+        run: |
+          node -c NewScript.js
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate JSON Payloads & Schema Integrity
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+
+          # Validate forecast.json
+          p = Path('forecast.json')
+          if p.exists():
+              data = json.loads(p.read_text(encoding='utf-8'))
+              assert 'dates' in data and len(data['dates']) > 0, 'Invalid dates in forecast.json'
+              assert 'vectors' in data, 'Missing vectors in forecast.json'
+              print('forecast.json integrity verified:', len(data['dates']), 'forecast days')
+
+          # Validate forecast.geojson
+          gp = Path('forecast.geojson')
+          if gp.exists():
+              gdata = json.loads(gp.read_text(encoding='utf-8'))
+              assert gdata.get('type') == 'FeatureCollection', 'Invalid GeoJSON type'
+              print('forecast.geojson integrity verified:', len(gdata.get('features', [])), 'features')
+          "
+
+      - name: Verify Live Endpoints Availability
+        run: |
+          python -c "
+          import urllib.request
+
+          endpoints = [
+              'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/0/0/0',
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/0/0/0',
+              'https://api.open-meteo.com/v1/forecast?latitude=32.3&longitude=-64.8&current=wind_speed_10m'
+          ]
+          for ep in endpoints:
+              req = urllib.request.Request(ep, headers={'User-Agent': 'HealthCheck/1.0'})
+              with urllib.request.urlopen(req, timeout=15) as res:
+                  assert res.status == 200, f'Endpoint failure: {ep}'
+                  print(f'Verified 200 OK: {ep[:60]}...')
+          "
