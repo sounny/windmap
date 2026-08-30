@@ -197,37 +197,41 @@ class WindCanvasOverlay {
         const dir = vectors[idx + 3];
         const color = getWindColor(speed);
 
-        // PROPORTIONAL VECTOR LENGTH: delicate small calm vectors, non-bolding uniform fine stroke
-        const len = Math.min(Math.max(4.5 + speed * 0.85, 5), 42);
-        const headLen = Math.min(Math.max(2.2 + speed * 0.15, 2.4), 7.0);
+        // PROPORTIONAL VECTOR LENGTH & TRUE METEOROLOGICAL DIRECTION (DOWNWIND FLOW)
+        const len = Math.min(Math.max(5 + speed * 0.85, 6), 40);
+        const headLen = Math.min(Math.max(2.5 + speed * 0.12, 2.8), 6.5);
         const strokeWidth = 1.25; // Crisp uniform line weight (no bolding on strong winds)
 
-        const angle = (dir - 90) * toRad;
-        const endX = x + len * Math.cos(angle);
-        const endY = y + len * Math.sin(angle);
+        // Meteorological wind direction (dir = direction wind is coming from)
+        // Downwind flow angle in canvas screen coordinates: (dir + 90) deg
+        const angle = ((dir + 90) % 360) * toRad;
+        const halfLen = len * 0.5;
 
-        const barbAngle1 = angle + Math.PI * 0.82;
-        const barbAngle2 = angle - Math.PI * 0.82;
+        // Centered vector shaft anchored at station grid point (x, y)
+        const startX = x - halfLen * Math.cos(angle);
+        const startY = y - halfLen * Math.sin(angle);
+        const endX = x + halfLen * Math.cos(angle);
+        const endY = y + halfLen * Math.sin(angle);
+
+        const barbAngle1 = angle + Math.PI * 0.80;
+        const barbAngle2 = angle - Math.PI * 0.80;
 
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.fillStyle = color;
         ctx.lineWidth = strokeWidth;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
-        ctx.moveTo(x, y);
+        // Draw shaft
+        ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
 
+        // Draw arrowhead barb at leading tip
         ctx.lineTo(endX + headLen * Math.cos(barbAngle1), endY + headLen * Math.sin(barbAngle1));
         ctx.moveTo(endX, endY);
         ctx.lineTo(endX + headLen * Math.cos(barbAngle2), endY + headLen * Math.sin(barbAngle2));
 
         ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(x, y, 0.9, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
 

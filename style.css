@@ -1279,3 +1279,16 @@ html, body {
   color: #fff;
   transform: translateY(-1px);
 }
+
+.legend-arrow-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 54px;
+}
+
+.legend-arrow-box svg {
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 0 4px currentColor);
+}
