@@ -1292,3 +1292,97 @@ html, body {
   overflow: visible;
   filter: drop-shadow(0 0 4px currentColor);
 }
+
+/* Dual-Vane Marine Wind Dial */
+.compass-needle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 64px;
+  margin-top: -32px;
+  margin-left: -2px;
+  transform: rotate(0deg);
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Cyan Arrow Head pointing in true flow direction matching map vectors */
+.vane-flow-head {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 24px solid var(--accent-cyan);
+  filter: drop-shadow(0 0 8px var(--accent-cyan-glow));
+}
+
+/* Center pivot */
+.vane-center-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px #fff;
+  z-index: 2;
+}
+
+/* Red Tail marking wind origin */
+.vane-origin-tail {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 14px solid var(--accent-rose);
+  opacity: 0.85;
+}
+
+.bearing-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 8px;
+  min-width: 100px;
+}
+
+.bearing-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bearing-row strong {
+  color: var(--accent-rose);
+  font-size: 11px;
+}
+
+.bearing-row #cardinalText {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.bearing-flow-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.bearing-flow-sub strong {
+  color: var(--accent-cyan);
+}
+
+.badge-sub {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}

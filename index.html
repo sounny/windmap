@@ -30,7 +30,7 @@
     rel="stylesheet"
   />
 
-  <link rel="stylesheet" href="style.css?v=1788090992" />
+  <link rel="stylesheet" href="style.css?v=1788093839" />
 </head>
 <body>
   <!-- Top Navigation Translucent Glass HUD -->
@@ -230,21 +230,24 @@
           </div>
         </div>
 
-        <!-- Compass Rose & Speed Gauge -->
+        <!-- Marine Dual-Vane Wind Compass & Speed Gauge -->
         <div class="wind-gauge-container">
           <div class="compass-rose">
-            <div class="compass-ring glass-compass">
+            <div class="compass-ring glass-compass" title="Marine Wind Dial: Arrow points in true flow direction matching map vectors">
               <span class="cardinal n">N</span>
               <span class="cardinal e">E</span>
               <span class="cardinal s">S</span>
               <span class="cardinal w">W</span>
+              <!-- Rotating Dual Vane (Cyan Head = Flow Direction, Red Tail = Origin) -->
               <div id="compassNeedle" class="compass-needle">
-                <div class="needle-head"></div>
+                <div class="vane-flow-head" title="Flow Destination (Matches Map)"></div>
+                <div class="vane-center-dot"></div>
+                <div class="vane-origin-tail" title="Wind Origin"></div>
               </div>
             </div>
-            <div class="bearing-badge glass-badge">
-              <span id="bearingDeg">0°</span>
-              <span id="cardinalText">CALM</span>
+            <div class="bearing-badge glass-badge" title="Wind Origin & Flow Bearing">
+              <div class="bearing-row"><span class="badge-sub">FROM</span> <strong id="bearingDeg">0°</strong> <span id="cardinalText">CALM</span></div>
+              <div class="bearing-flow-sub"><span class="badge-sub">BLOWS TO</span> <strong id="flowDegText">--°</strong></div>
             </div>
           </div>
 
@@ -392,6 +395,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="NewScript.js?v=1788090992"></script>
+  <script src="NewScript.js?v=1788093839"></script>
 </body>
 </html>

@@ -878,10 +878,21 @@ async function handleMapClick(e) {
 }
 
 function updateCompassGauge(weather) {
-  const deg = weather.direction || 0;
-  compassNeedle.style.transform = `rotate(${deg}deg)`;
-  bearingDegLabel.textContent = `${Math.round(deg)}°`;
-  cardinalTextLabel.textContent = degToCardinal(deg);
+  const fromDeg = (weather.direction || 0) % 360;
+  // Flow direction (where the wind is blowing towards, matching map vectors):
+  const toDeg = (fromDeg + 180) % 360;
+
+  // Rotate compass needle so the Cyan Arrow points in the exact flow direction of map vectors
+  // At 0 deg rotation, flow head points North (0 deg)
+  compassNeedle.style.transform = `rotate(${toDeg}deg)`;
+
+  bearingDegLabel.textContent = `${Math.round(fromDeg)}°`;
+  cardinalTextLabel.textContent = degToCardinal(fromDeg);
+
+  const flowDegElem = document.getElementById('flowDegText');
+  if (flowDegElem) {
+    flowDegElem.textContent = `${Math.round(toDeg)}° (${degToCardinal(toDeg)})`;
+  }
 
   windSpeedVal.textContent = convertWindSpeed(weather.speed);
   windSpeedUnit.textContent = currentUnit;
