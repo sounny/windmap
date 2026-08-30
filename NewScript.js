@@ -691,13 +691,69 @@ function updateCompassGauge(weather) {
   tempVal.textContent = weather.temp !== null ? `${Math.round(weather.temp)} °C` : '--';
 }
 
+// ============================================================================
+// Great-Circle (Geodesic) Spherical Interpolation
+// ============================================================================
+function generateGreatCirclePoints(lat1, lon1, lat2, lon2, baseSegments = 60) {
+  const toRad = deg => (deg * Math.PI) / 180;
+  const toDeg = rad => (rad * 180) / Math.PI;
+
+  const phi1 = toRad(lat1);
+  const lambda1 = toRad(lon1);
+  const phi2 = toRad(lat2);
+  const lambda2 = toRad(lon2);
+
+  // Angular distance on sphere
+  const dLat = phi2 - phi1;
+  const dLon = lambda2 - lambda1;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const delta = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+
+  if (delta < 1e-6) {
+    return [[lat1, lon1], [lat2, lon2]];
+  }
+
+  // Adaptive segment count proportional to spherical distance
+  const segments = Math.max(20, Math.min(120, Math.round(baseSegments * (delta / 0.5))));
+  const sinDelta = Math.sin(delta);
+  const arcPoints = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const f = i / segments;
+    const A = Math.sin((1 - f) * delta) / sinDelta;
+    const B = Math.sin(f * delta) / sinDelta;
+
+    const x = A * Math.cos(phi1) * Math.cos(lambda1) + B * Math.cos(phi2) * Math.cos(lambda2);
+    const y = A * Math.cos(phi1) * Math.sin(lambda1) + B * Math.cos(phi2) * Math.sin(lambda2);
+    const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+
+    const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+    const lon = toDeg(Math.atan2(y, x));
+
+    arcPoints.push([lat, lon]);
+  }
+
+  return arcPoints;
+}
+
 function updateRoutePolyline() {
   if (polyline) {
     map.removeLayer(polyline);
   }
   if (waypoints.length > 1) {
-    const latlngs = waypoints.map(wp => [wp.lat, wp.lng]);
-    polyline = L.polyline(latlngs, {
+    const allArcPoints = [];
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const wp1 = waypoints[i];
+      const wp2 = waypoints[i + 1];
+      const legPoints = generateGreatCirclePoints(wp1.lat, wp1.lng, wp2.lat, wp2.lng);
+      if (i > 0 && legPoints.length > 0) {
+        legPoints.shift(); // Prevent duplicate joint nodes
+      }
+      allArcPoints.push(...legPoints);
+    }
+
+    polyline = L.polyline(allArcPoints, {
       pane: 'routePane',
       color: '#38bdf8',
       weight: 3,
@@ -706,6 +762,7 @@ function updateRoutePolyline() {
     }).addTo(map);
   }
 }
+
 
 function renderWaypointTable() {
   waypointCountBadge.textContent = `${waypoints.length} WP`;
