@@ -3,7 +3,8 @@ name: NOAA GFS Model Ingestion & Telemetry Refresh
 on:
   schedule:
     # Run every 6 hours matching NOAA GFS forecast cycles (00Z, 06Z, 12Z, 18Z)
-    - cron: '0 */6 * * *'
+    # Staggered to minute 15 to avoid top-of-the-hour API concurrency traffic jams
+    - cron: '15 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -12,6 +13,7 @@ permissions:
 jobs:
   update-forecast:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +32,20 @@ jobs:
       - name: Run NOAA GFS Ingestion Script
         run: python downloadData.py
 
+      - name: Validate Output Integrity
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+          fj = json.loads(Path('forecast.json').read_text(encoding='utf-8'))
+          fg = json.loads(Path('forecast.geojson').read_text(encoding='utf-8'))
+          assert len(fj['dates']) > 0, 'No forecast dates generated'
+          assert len(fj['vectors']) == len(fj['dates']), 'Mismatch in date vector mappings'
+          assert fg['type'] == 'FeatureCollection', 'Invalid GeoJSON'
+          assert len(fg['features']) > 0, 'GeoJSON features empty'
+          print('Validation passed: all datasets fully intact')
+          "
+
       - name: Commit and push updated forecast
         run: |
           git config user.name "github-actions[bot]"
@@ -38,4 +54,3 @@ jobs:
           git commit -m "chore(data): refresh NOAA GFS forecast telemetry [skip ci]" || echo "No changes to commit"
           git pull --rebase origin main || true
           git push
-
