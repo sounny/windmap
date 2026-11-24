@@ -4,38 +4,114 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Refresh NOAA GFS telemetry and redeploy every 6 hours (00Z, 06Z, 12Z, 18Z cycles + 15m offset)
+    - cron: '15 */6 * * *'
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
 # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Do NOT cancel in-progress runs so production deployments finish cleanly.
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Validate JavaScript Syntax
+        run: node -c NewScript.js
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Validate Python Syntax
+        run: python -m py_compile downloadData.py
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Stage Production Static Assets
+        run: |
+          mkdir -p _site
+          cp index.html style.css NewScript.js _site/
+
+      - name: Generate Live NOAA GFS Forecast Dataset
+        run: |
+          if ! python downloadData.py --output _site/forecast.json; then
+            if [ "${{ github.event_name }}" = "push" ]; then
+              echo "::warning::Live NOAA GFS ingestion failed on push; falling back to published or baseline forecast.json"
+              curl -fsSL "https://sounny.github.io/windmap/forecast.json" -o _site/forecast.json || cp forecast.json _site/forecast.json
+            else
+              echo "::error::NOAA GFS ingestion failed on ${{ github.event_name }} run"
+              exit 1
+            fi
+          fi
+
+      - name: Validate Staged Forecast Integrity
+        run: |
+          python - << 'EOF'
+          from datetime import datetime, timezone
+          import json
+          from pathlib import Path
+
+          fj = json.loads(Path('_site/forecast.json').read_text(encoding='utf-8'))
+          dates = fj.get('dates', [])
+          vectors = fj.get('vectors', {})
+          grid = fj.get('grid', {})
+
+          assert len(dates) > 0, 'No forecast dates generated'
+          assert len(vectors) == len(dates), 'Mismatch in date vector mappings'
+
+          rows = grid.get('rows', 62)
+          cols = grid.get('cols', 144)
+          expected_len = rows * cols * 4
+          assert expected_len == 8928 * 4, f'Unexpected grid dimensions: {rows}x{cols}'
+
+          today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+          assert today_utc in dates, f'Missing today UTC date ({today_utc}) in forecast dates: {dates}'
+
+          for d in dates:
+              vec = vectors.get(d, [])
+              assert len(vec) == expected_len, f'Date {d} has {len(vec)} values, expected {expected_len}'
+
+          print(f'Validation passed: {len(dates)} days, {rows}x{cols} grid, aligned with {today_utc}')
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: '_site'
+
   deploy:
+    needs: build
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'
-
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

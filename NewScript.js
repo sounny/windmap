@@ -1,12 +1,8 @@
-// Defensive global alias for any cached caller
-window.parseAuthenticGfsVectors = function(raw) {
-  return generateGlobalWindField(new Date().toISOString().split('T')[0], raw);
-};
 /**
  * Wind Map - Master Client GIS Engine
- * High-performance 60 FPS Canvas vector field, proportional wind vector lengths,
- * true GLOBAL coverage, Along-Route Geodesic Line Telemetry Interpolation,
- * Instant Vector/Satellite toggle, Light/Dark themes, and zero-lag date scrubbing.
+ * High-performance 60 FPS Canvas vector field & fluid particle engine,
+ * true global coverage, O(1) bilinear vector interpolation, Along-Route
+ * Geodesic Line Telemetry Interpolation, and zero-lag date scrubbing.
  */
 
 // Global State
@@ -15,6 +11,7 @@ let vectorDarkLayer, vectorLightLayer, satelliteLayer;
 let currentBaseMode = 'vector'; // 'vector' or 'satellite'
 let currentTheme = 'dark'; // 'dark' or 'light'
 let polyline = null;
+let routeHitPolyline = null;
 let routeHoverBeacon = null;
 const drawnItems = new L.FeatureGroup();
 let canvasOverlay = null;
@@ -22,20 +19,43 @@ let particleOverlay = null;
 let currentDisplayStyle = 'arrows'; // 'arrows' or 'particles'
 
 let forecastVectorsByDate = {}; // { 'YYYY-MM-DD': Float32Array([lat, lon, speed, dir, ...]) }
+let forecastGridMeta = {
+  latMin: -75,
+  latMax: 77.5,
+  latStep: 2.5,
+  lonMin: -180,
+  lonMax: 177.5,
+  lonStep: 2.5,
+  rows: 62,
+  cols: 144
+};
+let forecastGeneratedAt = null;
 let availableDates = [];
 let currentDateIndex = 0;
 let currentDisplayVectors = null; // Float32Array
 
 let waypoints = []; // [{ index, lat, lng, speed, dir, gusts, pressure, temp, distToPrev, cumDist }]
-let routeInterpolatedPoints = []; // [{ lat, lng, distFromStart, legIndex, heading, speed, dir }]
-let currentUnit = 'knots';
-let currentDirConvention = localStorage.getItem('windmap_dir_convention') || 'from'; // 'from' (Meteorological) or 'to' (Flow) // 'knots', 'mph', 'kmh', 'ms', 'bft'
+let routeInterpolatedPoints = []; // [{ lat, lng, distFromStart, legIndex, heading, speed, dir, twa, tailwind, crosswind, sail }]
+let lastInspectedWeather = null;
+let inspectRequestSeq = 0;
+let routeClearEpoch = 0;
+
+let currentUnit = 'knots'; // 'knots', 'mph', 'kmh', 'ms', 'bft'
+let currentDirConvention = localStorage.getItem('windmap_dir_convention') || 'from'; // 'from' or 'to'
 let isPlaying = false;
 let playTimer = null;
 let playbackSpeed = 800; // ms per frame
 const speedMultipliers = [1, 2, 4];
 let speedIndex = 0;
 
+const WIND_COLOR_BUCKETS = ['#10b981', '#38bdf8', '#facc15', '#fb923c', '#ef4444', '#c084fc'];
+const UNIT_LABELS = {
+  knots: 'kts',
+  mph: 'mph',
+  kmh: 'km/h',
+  ms: 'm/s',
+  bft: 'Bft'
+};
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
@@ -63,8 +83,11 @@ const waypointTableBody = document.getElementById('waypointTableBody');
 const waypointCountBadge = document.getElementById('waypointCountBadge');
 const totalDistanceVal = document.getElementById('totalDistanceVal');
 const compassNeedle = document.getElementById('compassNeedle');
+const primaryDirLabel = document.getElementById('primaryDirLabel');
+const secondaryDirLabel = document.getElementById('secondaryDirLabel');
 const bearingDegLabel = document.getElementById('bearingDeg');
 const cardinalTextLabel = document.getElementById('cardinalText');
+const flowDegElem = document.getElementById('flowDegText');
 const windSpeedVal = document.getElementById('windSpeedVal');
 const windSpeedUnit = document.getElementById('windSpeedUnit');
 const beaufortChip = document.getElementById('beaufortChip');
@@ -84,10 +107,38 @@ const relativeWindVal = document.getElementById('relativeWindVal');
 const legendUnitBadge = document.getElementById('legendUnitBadge');
 
 // ============================================================================
-// 1. High-Performance HTML5 Canvas Vector Field Engine (60 FPS)
+// 0. Security & Non-Blocking UI Helpers
 // ============================================================================
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function showToast(message, type = 'info', durationMs = 3800) {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast-message toast-${type}`;
+  const iconClass = type === 'error'
+    ? 'fa-circle-exclamation'
+    : type === 'warn'
+      ? 'fa-triangle-exclamation'
+      : 'fa-circle-info';
+  toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><span>${escapeHtml(message)}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-6px)';
+    setTimeout(() => toast.remove(), 260);
+  }, durationMs);
+}
+
 // ============================================================================
-// 1. High-Performance HTML5 Canvas Vector Field Engine (60 FPS Global)
+// 1. High-Performance HTML5 Canvas Vector Field Engine (Arrows)
 // ============================================================================
 class WindCanvasOverlay {
   constructor(leafletMap) {
@@ -138,7 +189,7 @@ class WindCanvasOverlay {
     this.canvas.height = size.y * dpr;
     this.canvas.style.width = `${size.x}px`;
     this.canvas.style.height = `${size.y}px`;
-    this.ctx.scale(dpr, dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.dpr = dpr;
   }
 
@@ -156,13 +207,14 @@ class WindCanvasOverlay {
     if (!this.map || !this.ctx) return;
     const size = this.map.getSize();
     const dpr = this.dpr || 1;
+    const { rows, cols } = forecastGridMeta;
 
     this.ctx.save();
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.ctx.scale(dpr, dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    if (!this.vectors || this.vectors.length === 0) {
+    if (!this.vectors || this.vectors.length < rows * cols * 4) {
       this.ctx.restore();
       return;
     }
@@ -172,78 +224,90 @@ class WindCanvasOverlay {
     const ctx = this.ctx;
     const toRad = Math.PI / 180;
     const vectors = this.vectors;
-    const count = vectors.length / 4;
 
-    let stride = 1;
-    if (zoom <= 2) stride = 5;
-    else if (zoom <= 3) stride = 3;
-    else if (zoom <= 4) stride = 2;
-    else stride = 1;
+    // Uniform 2D row/col subsampling prevents vertical crowding or diagonal banding
+    const step = zoom <= 2 ? 3 : zoom <= 3 ? 2 : 1;
 
-    // Handle full-world longitude wrapping across Leaflet viewports
     const minWorld = Math.floor((bounds.getWest() + 180) / 360);
     const maxWorld = Math.floor((bounds.getEast() + 180) / 360);
+    const buckets = [[], [], [], [], [], []];
 
     for (let w = minWorld; w <= maxWorld; w++) {
       const lonOffset = w * 360;
 
-      for (let i = 0; i < count; i += stride) {
-        const idx = i * 4;
-        const lat = vectors[idx];
-        const lon = vectors[idx + 1] + lonOffset;
+      for (let r = 0; r < rows; r += step) {
+        for (let c = 0; c < cols; c += step) {
+          const idx = (r * cols + c) * 4;
+          const lat = vectors[idx];
+          const lon = vectors[idx + 1] + lonOffset;
 
-        const layerPt = this.map.latLngToContainerPoint([lat, lon]);
-        const x = layerPt.x;
-        const y = layerPt.y;
+          const layerPt = this.map.latLngToContainerPoint([lat, lon]);
+          const x = layerPt.x;
+          const y = layerPt.y;
 
-        if (x < -40 || y < -40 || x > size.x + 40 || y > size.y + 40) continue;
+          if (x < -40 || y < -40 || x > size.x + 40 || y > size.y + 40) continue;
 
-        const speed = vectors[idx + 2];
-        const dir = vectors[idx + 3];
-        const color = getWindColor(speed);
+          const speed = vectors[idx + 2];
+          const dir = vectors[idx + 3];
+          const bucketIdx = getWindColorBucketIndex(speed);
 
-        // PROPORTIONAL VECTOR LENGTH & TRUE METEOROLOGICAL DIRECTION (DOWNWIND FLOW)
-        const len = Math.min(Math.max(5 + speed * 0.85, 6), 40);
-        const headLen = Math.min(Math.max(2.5 + speed * 0.12, 2.8), 6.5);
-        const strokeWidth = 1.25; // Crisp uniform line weight (no bolding on strong winds)
+          const len = Math.min(Math.max(5 + speed * 0.85, 6), 40);
+          const headLen = Math.min(Math.max(2.5 + speed * 0.12, 2.8), 6.5);
 
-        // Meteorological wind direction (dir = direction wind is coming from)
-        // Downwind flow angle in canvas screen coordinates: (dir + 90) deg
-        const angle = ((dir + 90) % 360) * toRad;
-        const halfLen = len * 0.5;
+          // Meteorological FROM direction -> downwind flow angle in canvas coords
+          const angle = ((dir + 90) % 360) * toRad;
+          const halfLen = len * 0.5;
+          const cosA = Math.cos(angle);
+          const sinA = Math.sin(angle);
 
-        // Centered vector shaft anchored at station grid point (x, y)
-        const startX = x - halfLen * Math.cos(angle);
-        const startY = y - halfLen * Math.sin(angle);
-        const endX = x + halfLen * Math.cos(angle);
-        const endY = y + halfLen * Math.sin(angle);
+          const startX = x - halfLen * cosA;
+          const startY = y - halfLen * sinA;
+          const endX = x + halfLen * cosA;
+          const endY = y + halfLen * sinA;
 
-        const barbAngle1 = angle + Math.PI * 0.80;
-        const barbAngle2 = angle - Math.PI * 0.80;
+          const barbAngle1 = angle + Math.PI * 0.80;
+          const barbAngle2 = angle - Math.PI * 0.80;
 
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        // Draw shaft
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-
-        // Draw arrowhead barb at leading tip
-        ctx.lineTo(endX + headLen * Math.cos(barbAngle1), endY + headLen * Math.sin(barbAngle1));
-        ctx.moveTo(endX, endY);
-        ctx.lineTo(endX + headLen * Math.cos(barbAngle2), endY + headLen * Math.sin(barbAngle2));
-
-        ctx.stroke();
+          buckets[bucketIdx].push(
+            startX,
+            startY,
+            endX,
+            endY,
+            endX + headLen * Math.cos(barbAngle1),
+            endY + headLen * Math.sin(barbAngle1),
+            endX + headLen * Math.cos(barbAngle2),
+            endY + headLen * Math.sin(barbAngle2)
+          );
+        }
       }
+    }
+
+    ctx.lineWidth = 1.25;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let b = 0; b < 6; b++) {
+      const segs = buckets[b];
+      if (segs.length === 0) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = WIND_COLOR_BUCKETS[b];
+      for (let k = 0; k < segs.length; k += 8) {
+        const sx = segs[k];
+        const sy = segs[k + 1];
+        const ex = segs[k + 2];
+        const ey = segs[k + 3];
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.lineTo(segs[k + 4], segs[k + 5]);
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(segs[k + 6], segs[k + 7]);
+      }
+      ctx.stroke();
     }
 
     this.ctx.restore();
   }
 }
-
 
 // ============================================================================
 // 1B. High-Performance 60 FPS Animated Fluid Particle Engine
@@ -266,16 +330,23 @@ class WindParticleOverlay {
     this.maxParticles = 2200;
     this.animId = null;
     this.isActive = false;
+    this.isInteracting = false;
 
     this.resize();
     this.reposition();
 
+    this.map.on('movestart zoomstart', () => {
+      this.isInteracting = true;
+      this.clearCanvas();
+    });
     this.map.on('move', () => this.reposition());
     this.map.on('moveend', () => {
+      this.isInteracting = false;
       this.reposition();
       this.resetParticles();
     });
     this.map.on('zoomend', () => {
+      this.isInteracting = false;
       this.resize();
       this.reposition();
       this.resetParticles();
@@ -284,6 +355,18 @@ class WindParticleOverlay {
       this.resize();
       this.reposition();
       this.resetParticles();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!this.isActive) return;
+      if (document.hidden) {
+        if (this.animId) {
+          cancelAnimationFrame(this.animId);
+          this.animId = null;
+        }
+      } else if (!this.animId) {
+        this.animate();
+      }
     });
   }
 
@@ -294,7 +377,7 @@ class WindParticleOverlay {
     this.canvas.height = size.y * dpr;
     this.canvas.style.width = `${size.x}px`;
     this.canvas.style.height = `${size.y}px`;
-    this.ctx.scale(dpr, dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.dpr = dpr;
   }
 
@@ -303,20 +386,39 @@ class WindParticleOverlay {
     L.DomUtil.setPosition(this.canvas, topLeft);
   }
 
+  clearCanvas() {
+    if (!this.ctx) return;
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.restore();
+  }
+
   setVectors(vectors) {
     this.vectors = vectors;
     this.resetParticles();
+  }
+
+  respawnParticle(p, size) {
+    p.x = Math.random() * size.x;
+    p.y = Math.random() * size.y;
+    p.prevX = p.x;
+    p.prevY = p.y;
+    p.age = 0;
+    p.maxAge = 40 + Math.floor(Math.random() * 60);
   }
 
   resetParticles() {
     const size = this.map.getSize();
     this.particles = [];
     for (let i = 0; i < this.maxParticles; i++) {
+      const x = Math.random() * size.x;
+      const y = Math.random() * size.y;
       this.particles.push({
-        x: Math.random() * size.x,
-        y: Math.random() * size.y,
-        prevX: 0,
-        prevY: 0,
+        x,
+        y,
+        prevX: x,
+        prevY: y,
         age: Math.floor(Math.random() * 80),
         maxAge: 40 + Math.floor(Math.random() * 60),
         speed: 0
@@ -326,9 +428,13 @@ class WindParticleOverlay {
 
   start() {
     this.isActive = true;
+    this.isInteracting = false;
     this.canvas.style.display = 'block';
+    this.clearCanvas();
     this.resetParticles();
-    this.animate();
+    if (!this.animId && !document.hidden) {
+      this.animate();
+    }
   }
 
   stop() {
@@ -338,14 +444,17 @@ class WindParticleOverlay {
       cancelAnimationFrame(this.animId);
       this.animId = null;
     }
-    if (this.ctx) {
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    }
+    this.clearCanvas();
   }
 
   animate() {
-    if (!this.isActive) return;
-    this.drawFrame();
+    if (!this.isActive || document.hidden) {
+      this.animId = null;
+      return;
+    }
+    if (!this.isInteracting) {
+      this.drawFrame();
+    }
     this.animId = requestAnimationFrame(() => this.animate());
   }
 
@@ -353,8 +462,9 @@ class WindParticleOverlay {
     if (!this.map || !this.ctx || !this.vectors || this.vectors.length === 0) return;
     const size = this.map.getSize();
     const ctx = this.ctx;
+    const dpr = this.dpr || 1;
 
-    // Fluid particle motion blur fade effect
+    // Motion-blur fade on previous trails
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-out';
@@ -363,47 +473,59 @@ class WindParticleOverlay {
     ctx.restore();
 
     ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const speedScale = 0.55;
     const toRad = Math.PI / 180;
+    const buckets = [[], [], [], [], [], []];
 
     for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
       p.prevX = p.x;
       p.prevY = p.y;
 
-      // Convert canvas pixel (x, y) to Map Lat/Lon
       const latlng = this.map.containerPointToLatLng([p.x, p.y]);
       const wind = interpolateVectorField(latlng.lat, latlng.lng);
 
+      if (!wind) {
+        this.respawnParticle(p, size);
+        continue;
+      }
+
       p.speed = wind.speed;
       const angle = ((wind.dir + 90) % 360) * toRad;
-
       const step = Math.min(Math.max(wind.speed * speedScale, 1.2), 8.5);
       p.x += step * Math.cos(angle);
       p.y += step * Math.sin(angle);
       p.age++;
 
-      // Draw particle line segment
-      ctx.beginPath();
-      ctx.strokeStyle = getWindColor(wind.speed);
-      ctx.lineWidth = 1.3;
-      ctx.lineCap = 'round';
-      ctx.moveTo(p.prevX, p.prevY);
-      ctx.lineTo(p.x, p.y);
-      ctx.stroke();
+      buckets[getWindColorBucketIndex(wind.speed)].push(p.prevX, p.prevY, p.x, p.y);
 
-      // Respawn particle if expired or offscreen
       if (p.age > p.maxAge || p.x < 0 || p.x > size.x || p.y < 0 || p.y > size.y) {
-        p.x = Math.random() * size.x;
-        p.y = Math.random() * size.y;
-        p.age = 0;
-        p.maxAge = 40 + Math.floor(Math.random() * 60);
+        this.respawnParticle(p, size);
       }
     }
+
+    ctx.lineWidth = 1.3;
+    ctx.lineCap = 'round';
+    for (let b = 0; b < 6; b++) {
+      const segs = buckets[b];
+      if (segs.length === 0) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = WIND_COLOR_BUCKETS[b];
+      for (let k = 0; k < segs.length; k += 4) {
+        ctx.moveTo(segs[k], segs[k + 1]);
+        ctx.lineTo(segs[k + 2], segs[k + 3]);
+      }
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }
 
+// ============================================================================
+// 2. Map Initialization & Basemap Management
+// ============================================================================
 function initMap() {
   map = L.map('map', {
     preferCanvas: true,
@@ -415,7 +537,7 @@ function initMap() {
   map.createPane('routePane');
   map.getPane('routePane').style.zIndex = 550;
 
-  // 100% Free / Keyless Basemap Layers
+  // 100% Keyless Esri Basemap Layers
   vectorDarkLayer = L.layerGroup([
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
       attribution: '&copy; Esri, DeLorme, NAVTEQ',
@@ -452,12 +574,10 @@ function initMap() {
   applyBasemap();
   map.addLayer(drawnItems);
 
-  // Initialize Vector Canvas Overlay
   canvasOverlay = new WindCanvasOverlay(map);
   particleOverlay = new WindParticleOverlay(map);
   particleOverlay.stop();
 
-  // Map Click Event for Waypoints
   map.on('click', handleMapClick);
 }
 
@@ -475,7 +595,9 @@ function applyBasemap() {
 
   target.addTo(map);
   if (target.eachLayer) {
-    target.eachLayer(l => { if (l.bringToBack) l.bringToBack(); });
+    target.eachLayer(l => {
+      if (l.bringToBack) l.bringToBack();
+    });
   }
 }
 
@@ -502,15 +624,20 @@ function toggleTheme() {
 // ============================================================================
 // 3. Unit Conversions & Meteorological Utilities
 // ============================================================================
+function getUnitLabel(unit = currentUnit) {
+  return UNIT_LABELS[unit] || 'kts';
+}
+
 function convertWindSpeed(speedKnots, targetUnit = currentUnit) {
-  if (isNaN(speedKnots) || speedKnots === null) return '--';
+  if (speedKnots === null || speedKnots === undefined || Number.isNaN(Number(speedKnots))) return '--';
+  const k = Number(speedKnots);
   switch (targetUnit) {
-    case 'mph': return (speedKnots * 1.15078).toFixed(1);
-    case 'kmh': return (speedKnots * 1.852).toFixed(1);
-    case 'ms': return (speedKnots * 0.514444).toFixed(1);
-    case 'bft': return getBeaufortScale(speedKnots).force;
+    case 'mph': return (k * 1.15078).toFixed(1);
+    case 'kmh': return (k * 1.852).toFixed(1);
+    case 'ms': return (k * 0.514444).toFixed(1);
+    case 'bft': return getBeaufortScale(k).force;
     case 'knots':
-    default: return Number(speedKnots).toFixed(1);
+    default: return k.toFixed(1);
   }
 }
 
@@ -531,34 +658,77 @@ function getBeaufortScale(knots) {
   return { force: 12, desc: 'Hurricane Force' };
 }
 
-// WMO / NOAA International Marine Velocity Color Scale
-function getWindColor(speedKnots) {
+function getWindColorBucketIndex(speedKnots) {
   const k = parseFloat(speedKnots);
-  if (k < 7)  return '#10b981';  // Light (< 7 kts, Force 0-2): Emerald
-  if (k < 16) return '#38bdf8';  // Moderate (7-15 kts, Force 3-4): Sky Cyan
-  if (k < 25) return '#facc15';  // Fresh (16-24 kts, Force 5-6): Amber Gold
-  if (k < 34) return '#fb923c';  // Near Gale (25-33 kts, Force 7): Vibrant Orange
-  if (k < 48) return '#ef4444';  // Gale (34-47 kts, Force 8-9): Ruby Red
-  return '#c084fc';              // Storm / Hurricane (>= 48 kts, Force 10-12): Neon Purple
+  if (k < 7) return 0;
+  if (k < 16) return 1;
+  if (k < 25) return 2;
+  if (k < 34) return 3;
+  if (k < 48) return 4;
+  return 5;
 }
 
+function getWindColor(speedKnots) {
+  return WIND_COLOR_BUCKETS[getWindColorBucketIndex(speedKnots)];
+}
+
+function updateLegendUnits(unit = currentUnit) {
+  if (legendUnitBadge) {
+    legendUnitBadge.textContent = getUnitLabel(unit);
+  }
+  const labelEls = document.querySelectorAll('.scale-label[data-tier]');
+  if (labelEls.length === 0) return;
+
+  let labels;
+  if (unit === 'bft') {
+    labels = [
+      'Force 0-2 (Light Air)',
+      'Force 3-4 (Moderate)',
+      'Force 5-6 (Fresh)',
+      'Force 7 (Near Gale)',
+      'Force 8-9 (Gale Force)',
+      'Force 10-12 (Storm/Hurricane)'
+    ];
+  } else {
+    const fmt = k => {
+      const v = Number(convertWindSpeed(k, unit));
+      return unit === 'ms' ? v.toFixed(1) : Math.round(v);
+    };
+    const u = getUnitLabel(unit);
+    labels = [
+      `< ${fmt(7)} ${u} (Light Air)`,
+      `${fmt(7)} - ${fmt(15)} ${u} (Moderate)`,
+      `${fmt(16)} - ${fmt(24)} ${u} (Fresh)`,
+      `${fmt(25)} - ${fmt(33)} ${u} (Near Gale)`,
+      `${fmt(34)} - ${fmt(47)} ${u} (Gale Force)`,
+      `\u2265 ${fmt(48)} ${u} (Storm/Hurricane)`
+    ];
+  }
+
+  labelEls.forEach(el => {
+    const tier = Number(el.dataset.tier);
+    if (labels[tier]) {
+      el.textContent = labels[tier];
+    }
+  });
+}
 
 function formatWindDirection(fromDeg) {
   const normalizedFrom = ((fromDeg % 360) + 360) % 360;
   if (currentDirConvention === 'to') {
     const toDeg = (normalizedFrom + 180) % 360;
     return {
-      deg: Math.round(toDeg),
+      deg: Math.round(toDeg) % 360,
       cardinal: degToCardinal(toDeg),
       mode: 'TO',
-      fullText: `${Math.round(toDeg)}° (${degToCardinal(toDeg)}) [TO]`
+      fullText: `${Math.round(toDeg) % 360}° (${degToCardinal(toDeg)}) [TO]`
     };
   }
   return {
-    deg: Math.round(normalizedFrom),
+    deg: Math.round(normalizedFrom) % 360,
     cardinal: degToCardinal(normalizedFrom),
     mode: 'FROM',
-    fullText: `${Math.round(normalizedFrom)}° (${degToCardinal(normalizedFrom)}) [FROM]`
+    fullText: `${Math.round(normalizedFrom) % 360}° (${degToCardinal(normalizedFrom)}) [FROM]`
   };
 }
 
@@ -575,16 +745,26 @@ function toDMS(lat, lng) {
     const deg = Math.floor(abs);
     const minFloat = (abs - deg) * 60;
     const min = Math.floor(minFloat);
-    const sec = Math.round((minFloat - min) * 60);
+    let sec = Math.round((minFloat - min) * 60);
+    let adjMin = min;
+    let adjDeg = deg;
+    if (sec === 60) {
+      sec = 0;
+      adjMin += 1;
+      if (adjMin === 60) {
+        adjMin = 0;
+        adjDeg += 1;
+      }
+    }
     const dir = val >= 0 ? posChar : negChar;
-    return `${deg}° ${String(min).padStart(2, '0')}' ${String(sec).padStart(2, '0')}" ${dir}`;
+    return `${adjDeg}° ${String(adjMin).padStart(2, '0')}' ${String(sec).padStart(2, '0')}" ${dir}`;
   };
   return `${formatCoord(lat, 'N', 'S')} / ${formatCoord(lng, 'E', 'W')}`;
 }
 
 function calculateGreatCircleDistanceNM(lat1, lon1, lat2, lon2) {
   const toRad = deg => (deg * Math.PI) / 180;
-  const R = 3440.065; // Earth radius in Nautical Miles (NM)
+  const R = 3440.065;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -618,174 +798,110 @@ function getPointOfSail(twaDeg) {
 }
 
 // ============================================================================
-// 4. Global Wind Circulation Synthesis & GFS Grid Merging
+// 4. Live Weather Telemetry & O(1) Regular-Grid Bilinear Interpolation
 // ============================================================================
-// ============================================================================
-// 4. Truly Global Planetary Wind Grid Generator
-// ============================================================================
-function generateGlobalWindField(dateStr, gfsArray = []) {
-  const gfsLookup = new Map();
-  if (gfsArray && gfsArray.length > 0) {
-    for (let i = 0; i < gfsArray.length; i += 4) {
-      const gLat = Math.round(gfsArray[i]);
-      const gLon = Math.round(gfsArray[i + 1]);
-      gfsLookup.set(`${gLat},${gLon}`, {
-        lat: gfsArray[i],
-        lon: gfsArray[i + 1],
-        speed: gfsArray[i + 2],
-        dir: gfsArray[i + 3]
-      });
-    }
-  }
-
-  const grid = [];
-  const dateSeed = (dateStr.charCodeAt(dateStr.length - 1) || 0) * 0.18;
-
-  // Truly Global Grid (-80° to 80° Lat, -180° to 180° Lon)
-  for (let lat = -80; lat <= 80; lat += 2.0) {
-    for (let lon = -180; lon < 180; lon += 2.5) {
-      const key = `${Math.round(lat)},${Math.round(lon)}`;
-      if (gfsLookup.has(key)) {
-        const pt = gfsLookup.get(key);
-        grid.push(pt.lat, pt.lon, pt.speed, pt.dir);
-        continue;
-      }
-
-      const absLat = Math.abs(lat);
-      let baseSpeed = 12;
-      let baseDir = 270;
-
-      if (absLat < 28) {
-        // Trade Winds (Blow from NE in North, SE in South)
-        baseDir = lat >= 0 ? 65 : 115;
-        baseSpeed = 14 + 4 * Math.sin(lon * 0.05 + dateSeed);
-      } else if (absLat < 62) {
-        // Prevailing Westerlies (Blow from SW in North, NW in South)
-        baseDir = lat >= 0 ? 245 : 295;
-        baseSpeed = 19 + 7 * Math.cos(lon * 0.08 + dateSeed);
-      } else {
-        // Polar Easterlies
-        baseDir = lat >= 0 ? 80 : 100;
-        baseSpeed = 15 + 5 * Math.sin(lat * 0.1 + dateSeed);
-      }
-
-      const wave = Math.sin(lat * 0.08 + lon * 0.04 + dateSeed) * Math.cos(lat * 0.05);
-      const speed = Math.max(3, baseSpeed + wave * 5.5);
-      const dir = (baseDir + wave * 30 + 360) % 360;
-
-      grid.push(lat, lon, speed, dir);
-    }
-  }
-
-  return new Float32Array(grid);
-}
-
 async function fetchWeatherTelemetry(lat, lon) {
-  // Tier 1: Open-Meteo Marine / Weather API (Zero API Key, Global, Instant)
+  const parseNum = v => (v !== null && v !== undefined && Number.isFinite(Number(v)) ? Number(v) : null);
+
+  // Tier 1: Open-Meteo Global Live Current Observation
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&wind_speed_unit=kn`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       if (data && data.current) {
-        return {
-          speed: parseFloat(data.current.wind_speed_10m),
-          direction: parseFloat(data.current.wind_direction_10m),
-          gusts: parseFloat(data.current.wind_gusts_10m) || null,
-          pressure: parseFloat(data.current.pressure_msl) || null,
-          temp: parseFloat(data.current.temperature_2m) || null,
-          source: 'Open-Meteo Global Live'
-        };
+        const speed = parseNum(data.current.wind_speed_10m);
+        const direction = parseNum(data.current.wind_direction_10m);
+        if (speed !== null && direction !== null) {
+          return {
+            speed,
+            direction,
+            gusts: parseNum(data.current.wind_gusts_10m),
+            pressure: parseNum(data.current.pressure_msl),
+            temp: parseNum(data.current.temperature_2m),
+            source: 'Open-Meteo Global Live'
+          };
+        }
       }
     }
   } catch (err) {
     console.warn('Open-Meteo fallback:', err);
   }
 
-  // Tier 2: OpenWeatherMap API
-  try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&appid=${OWM_API_KEY}&units=metric`;
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.wind) {
-        const speedKnots = data.wind.speed * 1.94384;
-        const gustsKnots = data.wind.gust ? data.wind.gust * 1.94384 : null;
-        return {
-          speed: speedKnots,
-          direction: data.wind.deg,
-          gusts: gustsKnots,
-          pressure: data.main ? data.main.pressure : null,
-          temp: data.main ? data.main.temp : null,
-          source: 'OpenWeatherMap'
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('OpenWeatherMap fallback:', err);
+  // Tier 2: Interpolated NOAA GFS Forecast Grid
+  const localVec = interpolateVectorField(lat, lon);
+  if (localVec) {
+    return {
+      speed: localVec.speed,
+      direction: localVec.dir,
+      gusts: null,
+      pressure: null,
+      temp: null,
+      source: 'NOAA GFS Forecast Field'
+    };
   }
 
-  // Tier 3: In-Memory Global Vector Interpolation
-  const localVec = interpolateVectorField(lat, lon);
   return {
-    speed: localVec.speed,
-    direction: localVec.dir,
+    speed: null,
+    direction: null,
     gusts: null,
     pressure: null,
     temp: null,
-    source: 'Global GFS Telemetry'
+    source: 'Telemetry Unavailable'
   };
 }
 
 function interpolateVectorField(lat, lon) {
-  if (!currentDisplayVectors) return { speed: 10, dir: 270 };
   const vecs = currentDisplayVectors;
-  const count = vecs.length / 4;
-  
-  let totalWeight = 0;
-  let weightedU = 0;
-  let weightedV = 0;
+  const { latMin, latMax, latStep, lonMin, lonStep, rows, cols } = forecastGridMeta;
+  if (!vecs || vecs.length < rows * cols * 4) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -82 || lat > 82) return null;
+
+  const clampedLat = Math.max(latMin, Math.min(latMax, lat));
+  const normLon = ((((lon + 180) % 360) + 360) % 360) - 180;
+
+  const r = (clampedLat - latMin) / latStep;
+  const r0 = Math.min(Math.max(Math.floor(r), 0), rows - 1);
+  const r1 = Math.min(r0 + 1, rows - 1);
+  const fr = r - r0;
+
+  const c = (normLon - lonMin) / lonStep;
+  const cFloor = Math.floor(c);
+  const c0 = ((cFloor % cols) + cols) % cols;
+  const c1 = (c0 + 1) % cols;
+  const fc = c - cFloor;
+
   const toRad = Math.PI / 180;
+  const readUV = (ri, ci) => {
+    const idx = (ri * cols + ci) * 4;
+    const spd = vecs[idx + 2];
+    const dirRad = vecs[idx + 3] * toRad;
+    return {
+      u: -spd * Math.sin(dirRad),
+      v: -spd * Math.cos(dirRad)
+    };
+  };
 
-  for (let i = 0; i < count; i++) {
-    const idx = i * 4;
-    const vLat = vecs[idx];
-    const vLon = vecs[idx + 1];
-    const dLat = vLat - lat;
-    const dLon = vLon - lon;
-    const d2 = dLat * dLat + dLon * dLon;
+  const c00 = readUV(r0, c0);
+  const c10 = readUV(r0, c1);
+  const c01 = readUV(r1, c0);
+  const c11 = readUV(r1, c1);
 
-    if (d2 < 16) {
-      const dist = Math.sqrt(d2);
-      if (dist < 0.05) {
-        return { speed: vecs[idx + 2], dir: vecs[idx + 3] };
-      }
-      const weight = 1 / (d2 + 0.01);
-      const spd = vecs[idx + 2];
-      const dir = vecs[idx + 3];
-      
-      const u = spd * Math.sin(dir * toRad);
-      const v = spd * Math.cos(dir * toRad);
+  const u0 = c00.u + (c10.u - c00.u) * fc;
+  const v0 = c00.v + (c10.v - c00.v) * fc;
+  const u1 = c01.u + (c11.u - c01.u) * fc;
+  const v1 = c01.v + (c11.v - c01.v) * fc;
 
-      weightedU += u * weight;
-      weightedV += v * weight;
-      totalWeight += weight;
-    }
-  }
+  const u = u0 + (u1 - u0) * fr;
+  const v = v0 + (v1 - v0) * fr;
 
-  if (totalWeight > 0) {
-    const u = weightedU / totalWeight;
-    const v = weightedV / totalWeight;
-    const speed = Math.sqrt(u * u + v * v);
-    const dir = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360;
-    return { speed, dir };
-  }
-
-  return { speed: 10, dir: 270 };
+  const speed = Math.hypot(u, v);
+  const dir = speed > 1e-6 ? (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360 : 0;
+  return { speed, dir };
 }
 
 // ============================================================================
-// 6. Great-Circle (Geodesic) Spherical Arc Generator & Line Profiler
+// 5. Great-Circle (Geodesic) Spherical Arc Generator & Line Profiler
 // ============================================================================
 function generateGreatCirclePointsWithTelemetry(lat1, lon1, lat2, lon2, legIndex = 1, startCumDist = 0, baseSegments = 60) {
   const toRad = deg => (deg * Math.PI) / 180;
@@ -804,12 +920,19 @@ function generateGreatCirclePointsWithTelemetry(lat1, lon1, lat2, lon2, legIndex
 
   const legTotalNM = delta * 3440.065;
   if (delta < 1e-6) {
+    const wind = interpolateVectorField(lat1, lon1);
     return [{
-      lat: lat1, lng: lon1,
+      lat: lat1,
+      lng: lon1,
       distFromStart: startCumDist,
       legIndex,
       heading: 0,
-      ...interpolateVectorField(lat1, lon1)
+      speed: wind ? wind.speed : null,
+      dir: wind ? wind.dir : null,
+      twa: null,
+      tailwind: null,
+      crosswind: null,
+      sail: null
     }];
   }
 
@@ -847,10 +970,22 @@ function generateGreatCirclePointsWithTelemetry(lat1, lon1, lat2, lon2, legIndex
     const distFromStart = startCumDist + f * legTotalNM;
     const wind = interpolateVectorField(lat, lon);
 
-    const twa = ((wind.dir - heading + 180) % 360) - 180;
-    const headwind = wind.speed * Math.cos(twa * Math.PI / 180);
-    const crosswind = wind.speed * Math.sin(twa * Math.PI / 180);
-    const sail = getPointOfSail(twa);
+    let speed = null;
+    let dir = null;
+    let twa = null;
+    let tailwind = null;
+    let crosswind = null;
+    let sail = null;
+
+    if (wind) {
+      speed = wind.speed;
+      dir = wind.dir;
+      // Positive cos(twa) is wind blowing FROM ahead (headwind), so tailwind = -speed * cos(twa)
+      twa = ((((dir - heading + 180) % 360) + 360) % 360) - 180;
+      tailwind = -speed * Math.cos(twa * Math.PI / 180);
+      crosswind = speed * Math.sin(twa * Math.PI / 180);
+      sail = getPointOfSail(twa);
+    }
 
     points.push({
       lat,
@@ -858,10 +993,10 @@ function generateGreatCirclePointsWithTelemetry(lat1, lon1, lat2, lon2, legIndex
       distFromStart,
       legIndex,
       heading,
-      speed: wind.speed,
-      dir: wind.dir,
+      speed,
+      dir,
       twa,
-      headwind,
+      tailwind,
       crosswind,
       sail
     });
@@ -871,12 +1006,16 @@ function generateGreatCirclePointsWithTelemetry(lat1, lon1, lat2, lon2, legIndex
 }
 
 // ============================================================================
-// 7. Route Polyline & Interactive Along-Line Inspector
+// 6. Route Polyline & Interactive Along-Line Inspector
 // ============================================================================
 function updateRoutePolyline() {
   if (polyline) {
     map.removeLayer(polyline);
     polyline = null;
+  }
+  if (routeHitPolyline) {
+    map.removeLayer(routeHitPolyline);
+    routeHitPolyline = null;
   }
   routeInterpolatedPoints = [];
 
@@ -902,14 +1041,23 @@ function updateRoutePolyline() {
     polyline = L.polyline(latlngs, {
       pane: 'routePane',
       color: '#38bdf8',
-      weight: 5,
+      weight: 4,
       opacity: 0.9,
-      dashArray: '6, 6'
+      dashArray: '6, 6',
+      interactive: false
     }).addTo(map);
 
-    polyline.on('mousemove', handleRouteLineHover);
-    polyline.on('mouseout', handleRouteLineOut);
-    polyline.on('click', handleRouteLineClick);
+    routeHitPolyline = L.polyline(latlngs, {
+      pane: 'routePane',
+      color: '#38bdf8',
+      weight: 22,
+      opacity: 0.01,
+      interactive: true
+    }).addTo(map);
+
+    routeHitPolyline.on('mousemove', handleRouteLineHover);
+    routeHitPolyline.on('mouseout', handleRouteLineOut);
+    routeHitPolyline.on('click', handleRouteLineClick);
   }
 }
 
@@ -936,6 +1084,8 @@ function handleRouteLineHover(e) {
   const pt = findNearestRoutePoint(lat, lng);
   if (!pt) return;
 
+  inspectRequestSeq++;
+
   if (telemetryDrawer.classList.contains('closed')) {
     telemetryDrawer.classList.remove('closed');
   }
@@ -948,7 +1098,8 @@ function handleRouteLineHover(e) {
       color: '#ffffff',
       weight: 2,
       opacity: 1,
-      fillOpacity: 1
+      fillOpacity: 1,
+      interactive: false
     }).addTo(map);
   } else {
     routeHoverBeacon.setLatLng([pt.lat, pt.lng]);
@@ -967,7 +1118,7 @@ function handleRouteLineHover(e) {
   updateCompassGauge({
     speed: pt.speed,
     direction: pt.dir,
-    gusts: pt.speed * 1.3,
+    gusts: null,
     pressure: null,
     temp: null
   });
@@ -975,11 +1126,18 @@ function handleRouteLineHover(e) {
   routeRelativeHud.style.display = 'flex';
   routeHeadingVal.textContent = `${Math.round(pt.heading)}° (${degToCardinal(pt.heading)})`;
   pointOfSailVal.textContent = pt.sail ? pt.sail.name : '--';
-  
-  const hwSign = pt.headwind >= 0 ? '+' : '';
-  const hwDesc = pt.headwind >= 0 ? 'Tailwind' : 'Headwind';
-  relativeWindVal.textContent = `${hwSign}${convertWindSpeed(Math.abs(pt.headwind))} kts ${hwDesc}`;
-  relativeWindVal.style.color = pt.headwind >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+
+  if (pt.tailwind !== null && pt.tailwind !== undefined) {
+    const isTailwind = pt.tailwind >= 0;
+    const twSign = isTailwind ? '+' : '-';
+    const twDesc = isTailwind ? 'Tailwind' : 'Headwind';
+    const compUnit = currentUnit === 'bft' ? 'knots' : currentUnit;
+    relativeWindVal.textContent = `${twSign}${convertWindSpeed(Math.abs(pt.tailwind), compUnit)} ${getUnitLabel(compUnit)} ${twDesc}`;
+    relativeWindVal.style.color = isTailwind ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+  } else {
+    relativeWindVal.textContent = '--';
+    relativeWindVal.style.color = 'var(--text-primary)';
+  }
 }
 
 function handleRouteLineOut() {
@@ -990,14 +1148,19 @@ function handleRouteLineOut() {
 }
 
 function handleRouteLineClick(e) {
+  if (e && e.originalEvent) {
+    L.DomEvent.stopPropagation(e.originalEvent);
+  }
   handleRouteLineHover(e);
 }
 
 // ============================================================================
-// 8. Map Click & Waypoint Handling
+// 7. Map Click & Waypoint Handling
 // ============================================================================
 async function handleMapClick(e) {
   const { lat, lng } = e.latlng;
+  const reqId = ++inspectRequestSeq;
+  const clearEpochAtStart = routeClearEpoch;
 
   if (telemetryDrawer.classList.contains('closed')) {
     telemetryDrawer.classList.remove('closed');
@@ -1012,9 +1175,12 @@ async function handleMapClick(e) {
   telemetrySource.textContent = 'Querying Global Telemetry...';
 
   const weather = await fetchWeatherTelemetry(lat, lng);
-  telemetrySource.textContent = weather.source;
+  if (clearEpochAtStart !== routeClearEpoch) return;
 
-  updateCompassGauge(weather);
+  if (reqId === inspectRequestSeq) {
+    telemetrySource.textContent = weather.source;
+    updateCompassGauge(weather);
+  }
 
   let legDist = 0;
   let cumDist = 0;
@@ -1034,7 +1200,7 @@ async function handleMapClick(e) {
     pressure: weather.pressure,
     temp: weather.temp,
     distToPrev: legDist,
-    cumDist: cumDist
+    cumDist
   };
 
   waypoints.push(newWp);
@@ -1049,12 +1215,16 @@ async function handleMapClick(e) {
     fillOpacity: 0.9
   }).addTo(drawnItems);
 
+  const windPopupStr = weather.speed !== null && weather.direction !== null
+    ? `${escapeHtml(convertWindSpeed(weather.speed))} ${escapeHtml(getUnitLabel())} @ ${formatWindDirection(weather.direction).deg}° (${escapeHtml(formatWindDirection(weather.direction).cardinal)})`
+    : 'Telemetry unavailable';
+
   marker.bindPopup(`
-    <div style="font-family: var(--font-main); font-size: 12px; color: #fff;">
-      <strong style="color: #38bdf8;">Waypoint #${newWp.index}</strong><br/>
-      ${toDMS(lat, lng)}<br/>
-      Wind: <strong>${convertWindSpeed(weather.speed)} ${currentUnit}</strong> @ ${Math.round(weather.direction)}° (${degToCardinal(weather.direction)})<br/>
-      Leg: <strong>${legDist.toFixed(1)} NM</strong> | Total: <strong>${cumDist.toFixed(1)} NM</strong>
+    <div class="wind-popup">
+      <strong class="wind-popup-title">Waypoint #${newWp.index}</strong>
+      <div class="wind-popup-meta">${escapeHtml(toDMS(lat, lng))}</div>
+      <div class="wind-popup-meta">Wind: <strong>${windPopupStr}</strong></div>
+      <div class="wind-popup-meta">Leg: <strong>${legDist.toFixed(1)} NM</strong> | Total: <strong>${cumDist.toFixed(1)} NM</strong></div>
     </div>
   `);
 
@@ -1063,37 +1233,82 @@ async function handleMapClick(e) {
 }
 
 function updateCompassGauge(weather) {
-  const fromDeg = (weather.direction || 0) % 360;
-  const toDeg = (fromDeg + 180) % 360;
+  const unitLabel = getUnitLabel(currentUnit);
+  const isTo = currentDirConvention === 'to';
 
-  // If in 'from' mode, needle points to origin angle (fromDeg)
-  // If in 'to' mode, needle points to flow destination (toDeg)
-  const rotationAngle = currentDirConvention === 'to' ? toDeg : fromDeg;
-  compassNeedle.style.transform = `rotate(${rotationAngle}deg)`;
+  if (primaryDirLabel) primaryDirLabel.textContent = isTo ? 'BLOWS TO' : 'FROM';
+  if (secondaryDirLabel) secondaryDirLabel.textContent = isTo ? 'FROM' : 'BLOWS TO';
 
-  const dirData = formatWindDirection(fromDeg);
-  bearingDegLabel.textContent = `${dirData.deg}°`;
-  cardinalTextLabel.textContent = dirData.cardinal;
-
-  const flowDegElem = document.getElementById('flowDegText');
-  if (flowDegElem) {
-    if (currentDirConvention === 'to') {
-      flowDegElem.innerHTML = `FROM <strong style="color:var(--accent-rose);">${Math.round(fromDeg)}° (${degToCardinal(fromDeg)})</strong>`;
-    } else {
-      flowDegElem.innerHTML = `BLOWS TO <strong style="color:var(--accent-cyan);">${Math.round(toDeg)}° (${degToCardinal(toDeg)})</strong>`;
+  const hasValidWind = weather && weather.speed !== null && weather.speed !== undefined && !Number.isNaN(Number(weather.speed));
+  if (!hasValidWind) {
+    lastInspectedWeather = null;
+    if (compassNeedle) compassNeedle.style.transform = 'rotate(0deg)';
+    if (bearingDegLabel) bearingDegLabel.textContent = '--°';
+    if (cardinalTextLabel) cardinalTextLabel.textContent = '--';
+    if (flowDegElem) flowDegElem.textContent = '--°';
+    if (windSpeedVal) windSpeedVal.textContent = '--';
+    if (windSpeedUnit) windSpeedUnit.textContent = unitLabel;
+    if (beaufortChip) {
+      beaufortChip.textContent = 'Force --';
+      beaufortChip.style.color = 'var(--text-muted)';
     }
+    if (gustSpeedVal) gustSpeedVal.textContent = '--';
+    if (pressureVal) pressureVal.textContent = '--';
+    if (tempVal) tempVal.textContent = '--';
+    return;
   }
 
-  windSpeedVal.textContent = convertWindSpeed(weather.speed);
-  windSpeedUnit.textContent = currentUnit;
+  const rawDir = weather.direction !== undefined && weather.direction !== null ? weather.direction : weather.dir;
+  const hasDir = rawDir !== null && rawDir !== undefined && !Number.isNaN(Number(rawDir));
+  const fromDeg = hasDir ? ((Number(rawDir) % 360) + 360) % 360 : 0;
+  const toDeg = (fromDeg + 180) % 360;
+
+  lastInspectedWeather = { ...weather, direction: hasDir ? fromDeg : null };
+
+  // Cyan vane head always points downwind (toDeg) matching map vectors; red tail marks origin
+  if (compassNeedle) {
+    compassNeedle.style.transform = hasDir ? `rotate(${toDeg}deg)` : 'rotate(0deg)';
+  }
+
+  if (hasDir) {
+    const dirData = formatWindDirection(fromDeg);
+    if (bearingDegLabel) bearingDegLabel.textContent = `${dirData.deg}°`;
+    if (cardinalTextLabel) cardinalTextLabel.textContent = dirData.cardinal;
+    if (flowDegElem) {
+      const secondaryDeg = isTo ? Math.round(fromDeg) % 360 : Math.round(toDeg) % 360;
+      const secondaryCard = degToCardinal(secondaryDeg);
+      flowDegElem.textContent = `${secondaryDeg}° (${secondaryCard})`;
+    }
+  } else {
+    if (bearingDegLabel) bearingDegLabel.textContent = '--°';
+    if (cardinalTextLabel) cardinalTextLabel.textContent = '--';
+    if (flowDegElem) flowDegElem.textContent = '--°';
+  }
+
+  if (windSpeedVal) windSpeedVal.textContent = convertWindSpeed(weather.speed);
+  if (windSpeedUnit) windSpeedUnit.textContent = unitLabel;
 
   const bft = getBeaufortScale(weather.speed);
-  beaufortChip.textContent = `Force ${bft.force} (${bft.desc})`;
-  beaufortChip.style.color = getWindColor(weather.speed);
+  if (beaufortChip) {
+    beaufortChip.textContent = `Force ${bft.force} (${bft.desc})`;
+    beaufortChip.style.color = getWindColor(weather.speed);
+  }
 
-  gustSpeedVal.textContent = weather.gusts ? `${convertWindSpeed(weather.gusts)} ${currentUnit}` : '--';
-  pressureVal.textContent = weather.pressure ? `${Math.round(weather.pressure)} hPa` : '--';
-  tempVal.textContent = weather.temp !== null ? `${Math.round(weather.temp)} °C` : '--';
+  if (gustSpeedVal) {
+    gustSpeedVal.textContent = weather.gusts !== null && weather.gusts !== undefined
+      ? `${convertWindSpeed(weather.gusts)} ${unitLabel}`
+      : '--';
+  }
+  if (pressureVal) {
+    pressureVal.textContent = weather.pressure !== null && weather.pressure !== undefined
+      ? `${Math.round(weather.pressure)} hPa`
+      : '--';
+  }
+  if (tempVal) {
+    tempVal.textContent = weather.temp !== null && weather.temp !== undefined
+      ? `${Math.round(weather.temp)} °C`
+      : '--';
+  }
 }
 
 function renderWaypointTable() {
@@ -1113,11 +1328,18 @@ function renderWaypointTable() {
   let html = '';
   for (let i = 0; i < waypoints.length; i++) {
     const wp = waypoints[i];
+    const hasWind = wp.speed !== null && wp.speed !== undefined;
+    const speedCell = hasWind
+      ? `<span style="color:${getWindColor(wp.speed)};font-weight:700;">${escapeHtml(convertWindSpeed(wp.speed))}</span>`
+      : '--';
+    const dirCell = wp.dir !== null && wp.dir !== undefined
+      ? `@ ${formatWindDirection(wp.dir).deg}° (${escapeHtml(formatWindDirection(wp.dir).cardinal)})`
+      : '';
     html += `
       <tr>
         <td><strong>WP${wp.index}</strong></td>
         <td>${wp.lat.toFixed(2)}°, ${wp.lng.toFixed(2)}°</td>
-        <td><span style="color:${getWindColor(wp.speed)};font-weight:700;">${convertWindSpeed(wp.speed)}</span> @ ${formatWindDirection(wp.dir).deg}° (${formatWindDirection(wp.dir).cardinal})</td>
+        <td>${speedCell} ${dirCell}</td>
         <td>${wp.distToPrev.toFixed(1)}</td>
       </tr>
     `;
@@ -1126,12 +1348,18 @@ function renderWaypointTable() {
 }
 
 function clearRoute() {
+  routeClearEpoch++;
+  inspectRequestSeq++;
   waypoints = [];
   routeInterpolatedPoints = [];
   drawnItems.clearLayers();
   if (polyline) {
     map.removeLayer(polyline);
     polyline = null;
+  }
+  if (routeHitPolyline) {
+    map.removeLayer(routeHitPolyline);
+    routeHitPolyline = null;
   }
   if (routeHoverBeacon) {
     map.removeLayer(routeHoverBeacon);
@@ -1143,16 +1371,16 @@ function clearRoute() {
   routeRelativeHud.style.display = 'none';
   coordDMS.textContent = `--° --' --" N / --° --' --" W`;
   coordDD.textContent = `--.----, --.----`;
-  telemetrySource.textContent = `Click Map or Hover Route`;
-  updateCompassGauge({ speed: 0, direction: 0, gusts: null, pressure: null, temp: null });
+  telemetrySource.textContent = 'Click Map or Hover Route';
+  updateCompassGauge(null);
 }
 
 // ============================================================================
-// 9. Route Exporters (GPX & GeoJSON)
+// 8. Route Exporters (GPX & GeoJSON)
 // ============================================================================
 function exportRouteGpx() {
   if (waypoints.length === 0) {
-    alert('Please plot at least one waypoint before exporting GPX.');
+    showToast('Please plot at least one waypoint before exporting GPX.', 'warn');
     return;
   }
 
@@ -1162,9 +1390,12 @@ function exportRouteGpx() {
   gpx += `  <rte>\n    <name>Marine Navigation Route</name>\n`;
 
   for (const wp of waypoints) {
+    const desc = wp.speed !== null && wp.dir !== null
+      ? `Wind: ${convertWindSpeed(wp.speed)} ${getUnitLabel()} @ ${Math.round(wp.dir)} deg`
+      : 'Wind telemetry unavailable';
     gpx += `    <rtept lat="${wp.lat}" lon="${wp.lng}">\n`;
     gpx += `      <name>WP${wp.index}</name>\n`;
-    gpx += `      <desc>Wind: ${convertWindSpeed(wp.speed)} ${currentUnit} @ ${Math.round(wp.dir)} deg</desc>\n`;
+    gpx += `      <desc>${desc}</desc>\n`;
     gpx += `    </rtept>\n`;
   }
 
@@ -1175,7 +1406,7 @@ function exportRouteGpx() {
 
 function exportRouteGeoJson() {
   if (waypoints.length === 0) {
-    alert('Please plot at least one waypoint before exporting GeoJSON.');
+    showToast('Please plot at least one waypoint before exporting GeoJSON.', 'warn');
     return;
   }
 
@@ -1230,9 +1461,10 @@ function downloadFile(content, fileName, mimeType) {
 }
 
 // ============================================================================
-// 10. Timeline Playback & Scrubber Controls
+// 9. Timeline Playback & Scrubber Controls
 // ============================================================================
 function togglePlay() {
+  if (availableDates.length === 0) return;
   isPlaying = !isPlaying;
   if (isPlaying) {
     playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
@@ -1261,6 +1493,7 @@ function stopPlayback() {
 }
 
 function stepTimeline(direction) {
+  if (availableDates.length === 0) return;
   stopPlayback();
   currentDateIndex = (currentDateIndex + direction + availableDates.length) % availableDates.length;
   dateSlider.value = currentDateIndex;
@@ -1277,9 +1510,6 @@ function toggleSpeed() {
   }
 }
 
-// ============================================================================
-// 11. Search & Preloading
-// ============================================================================
 // ============================================================================
 // 10. Pro Search & Typeahead Autocomplete Geocoder Engine
 // ============================================================================
@@ -1306,8 +1536,8 @@ function initSearchEngine() {
       searchDebounceTimer = setTimeout(() => fetchSearchSuggestions(val), 180);
     } else if (val.length === 0) {
       showSearchPresetsOnly();
-    } else {
-      if (searchDropdown) searchDropdown.style.display = 'none';
+    } else if (searchDropdown) {
+      searchDropdown.style.display = 'none';
     }
   });
 
@@ -1408,7 +1638,7 @@ async function fetchSearchSuggestions(query) {
         if (Array.isArray(data)) {
           data.forEach(r => {
             suggestions.push({
-              name: r.display_name.split(',').slice(0, 3).join(','),
+              name: String(r.display_name || '').split(',').slice(0, 3).join(','),
               coordsStr: `${parseFloat(r.lat).toFixed(2)}°, ${parseFloat(r.lon).toFixed(2)}°`,
               lat: parseFloat(r.lat),
               lon: parseFloat(r.lon),
@@ -1441,12 +1671,13 @@ function renderSearchSuggestions(suggestions) {
 
   let html = '';
   suggestions.forEach((s, idx) => {
+    const iconSafe = /^fa-[a-z0-9-]+$/.test(s.icon) ? s.icon : 'fa-map-pin';
     html += `
-      <button class="suggestion-item" data-index="${idx}" data-lat="${s.lat}" data-lon="${s.lon}" data-name="${s.name}">
-        <i class="fa-solid ${s.icon} suggestion-icon"></i>
+      <button class="suggestion-item" data-index="${idx}">
+        <i class="fa-solid ${iconSafe} suggestion-icon"></i>
         <div class="suggestion-info">
-          <span class="suggestion-name">${s.name}</span>
-          <span class="suggestion-coords">${s.coordsStr}</span>
+          <span class="suggestion-name">${escapeHtml(s.name)}</span>
+          <span class="suggestion-coords">${escapeHtml(s.coordsStr)}</span>
         </div>
       </button>
     `;
@@ -1457,12 +1688,12 @@ function renderSearchSuggestions(suggestions) {
 
   searchSuggestionsList.querySelectorAll('.suggestion-item').forEach(btn => {
     btn.addEventListener('click', () => {
-      const lat = parseFloat(btn.dataset.lat);
-      const lon = parseFloat(btn.dataset.lon);
-      const name = btn.dataset.name;
-      locationSearch.value = name;
+      const item = suggestions[Number(btn.dataset.index)];
+      if (!item) return;
+      locationSearch.value = item.name;
+      if (searchClearBtn) searchClearBtn.style.display = 'block';
       searchDropdown.style.display = 'none';
-      flyToLocation(lat, lon, 7, name);
+      flyToLocation(item.lat, item.lon, 7, item.name);
     });
   });
 }
@@ -1537,7 +1768,7 @@ async function executeImmediateSearch(query) {
     console.warn('Direct search error:', err);
   }
 
-  alert(`Location "${query}" not found. Try entering lat, lon (e.g. 32.5, -64.8).`);
+  showToast(`Location "${query}" not found. Try entering lat, lon (e.g. 32.5, -64.8).`, 'warn');
 }
 
 function parseCoordinates(str) {
@@ -1553,6 +1784,7 @@ function parseCoordinates(str) {
 }
 
 async function flyToLocation(lat, lon, zoom = 7, title = '') {
+  const reqId = ++inspectRequestSeq;
   map.flyTo([lat, lon], zoom, { duration: 1.4, easeLinearity: 0.25 });
 
   if (searchTargetMarker) {
@@ -1569,9 +1801,9 @@ async function flyToLocation(lat, lon, zoom = 7, title = '') {
   }).addTo(map);
 
   searchTargetMarker.bindPopup(`
-    <div style="font-family: var(--font-main); font-size: 12px; color: #fff;">
-      <strong style="color: #38bdf8;">${title || 'Searched Location'}</strong><br/>
-      ${toDMS(lat, lon)}
+    <div class="wind-popup">
+      <strong class="wind-popup-title">${escapeHtml(title || 'Searched Location')}</strong>
+      <div class="wind-popup-meta">${escapeHtml(toDMS(lat, lon))}</div>
     </div>
   `).openPopup();
 
@@ -1583,38 +1815,50 @@ async function flyToLocation(lat, lon, zoom = 7, title = '') {
   routeProgressRow.style.display = 'none';
   routeRelativeHud.style.display = 'none';
 
-  coordDMS.textContent = toDMS(lat, lon);
+  coordDMS.textContent = toDMS(lat, lngSafe(lon));
   coordDD.textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
   telemetrySource.textContent = 'Querying Live Telemetry...';
 
   const weather = await fetchWeatherTelemetry(lat, lon);
+  if (reqId !== inspectRequestSeq) return;
   telemetrySource.textContent = weather.source;
   updateCompassGauge(weather);
 }
 
+function lngSafe(lon) {
+  return Number.isFinite(lon) ? lon : 0;
+}
 
+// ============================================================================
+// 11. GFS Forecast Data Preloading & Timeline Sync
+// ============================================================================
 async function preloadGfsData() {
   loadingIndicator.style.display = 'flex';
   try {
     let loaded = false;
     try {
-      const res = await fetch('forecast.json');
+      const res = await fetch('forecast.json', { cache: 'no-cache' });
       if (res.ok) {
         const json = await res.json();
         if (json && json.vectors) {
+          if (json.grid && json.grid.rows && json.grid.cols) {
+            forecastGridMeta = { ...forecastGridMeta, ...json.grid };
+          }
+          forecastGeneratedAt = json.generated_at || null;
           availableDates = json.dates || Object.keys(json.vectors).sort();
           for (const d of availableDates) {
             const raw = json.vectors[d] || [];
             forecastVectorsByDate[d] = new Float32Array(raw);
           }
-          loaded = true;
+          loaded = availableDates.length > 0;
         }
       }
     } catch (e) {
-      console.warn('forecast.json fallback:', e);
+      console.warn('forecast.json load error:', e);
     }
 
     if (!loaded) {
+      showToast('Forecast dataset could not be loaded. Showing live point queries only.', 'warn', 5000);
       const today = new Date();
       availableDates = [];
       for (let i = 0; i < 7; i++) {
@@ -1629,32 +1873,17 @@ async function preloadGfsData() {
     dateSlider.min = 0;
     dateSlider.max = availableDates.length - 1;
 
-    // Automatically align slider to TODAY's date on load
     const todayUtc = new Date().toISOString().split('T')[0];
     const todayIndex = availableDates.indexOf(todayUtc);
     currentDateIndex = todayIndex !== -1 ? todayIndex : 0;
     dateSlider.value = currentDateIndex;
-    
+
     updateSelectedDateLabel(availableDates[currentDateIndex]);
     updateWindDisplay(availableDates[currentDateIndex]);
-    console.log(`[Wind Map] Live verification complete: aligned to ${availableDates[currentDateIndex]} (Today: ${todayUtc})`);
+    console.log(`[Wind Map] Telemetry aligned to ${availableDates[currentDateIndex]} (Today UTC: ${todayUtc})`);
   } catch (err) {
     console.error('Error preloading GFS data:', err);
-    const today = new Date();
-    availableDates = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      const ds = d.toISOString().split('T')[0];
-      availableDates.push(ds);
-      forecastVectorsByDate[ds] = new Float32Array(0);
-    }
-    dateSlider.min = 0;
-    dateSlider.max = availableDates.length - 1;
-    dateSlider.value = 0;
-    currentDateIndex = 0;
-    updateSelectedDateLabel(availableDates[0]);
-    updateWindDisplay(availableDates[0]);
+    showToast('Unable to initialize forecast timeline.', 'error');
   } finally {
     loadingIndicator.style.display = 'none';
   }
@@ -1681,10 +1910,11 @@ function updateSelectedDateLabel(dateStr) {
   const todayUtc = new Date().toISOString().split('T')[0];
   const isToday = dateStr === todayUtc;
   if (isToday) {
-    selectedDateLabel.innerHTML = `${dateStr} <span class="live-dot-pulse">● LIVE NOW</span>`;
+    selectedDateLabel.innerHTML = `${escapeHtml(dateStr)} <span class="live-dot-pulse">● LIVE NOW</span>`;
   } else {
-    selectedDateLabel.textContent = `${dateStr} 12:00 UTC`;
+    selectedDateLabel.textContent = `${dateStr} (Daily Max)`;
   }
+  selectedDateLabel.title = forecastGeneratedAt ? `Model updated: ${forecastGeneratedAt}` : '';
 }
 
 function updateUtcClock() {
@@ -1705,15 +1935,12 @@ function initEventListeners() {
   if (dateSlider) {
     dateSlider.addEventListener('input', () => {
       stopPlayback();
-      currentDateIndex = parseInt(dateSlider.value);
+      currentDateIndex = parseInt(dateSlider.value, 10);
       const date = availableDates[currentDateIndex];
       updateWindDisplay(date);
     });
   }
 
-  // Basemap Vector / Satellite Toggle Switch
-  
-  // Direction Convention Toggle (FROM vs TO)
   const btnDirFrom = document.getElementById('btnDirFrom');
   const btnDirTo = document.getElementById('btnDirTo');
 
@@ -1728,16 +1955,14 @@ function initEventListeners() {
       if (btnDirTo) btnDirTo.classList.remove('active');
     }
     renderWaypointTable();
-    if (waypoints.length > 0) {
-      updateCompassGauge(waypoints[waypoints.length - 1]);
-    }
+    updateCompassGauge(lastInspectedWeather);
   }
 
   if (btnDirFrom) btnDirFrom.addEventListener('click', () => setDirConvention('from'));
   if (btnDirTo) btnDirTo.addEventListener('click', () => setDirConvention('to'));
 
-  // Initialize active button state from saved storage
   setDirConvention(currentDirConvention);
+  updateLegendUnits(currentUnit);
 
   if (btnMapVector) btnMapVector.addEventListener('click', () => switchBasemapMode('vector'));
   if (btnMapSatellite) btnMapSatellite.addEventListener('click', () => switchBasemapMode('satellite'));
@@ -1746,11 +1971,9 @@ function initEventListeners() {
   if (unitSelect) {
     unitSelect.addEventListener('change', e => {
       currentUnit = e.target.value;
-      legendUnitBadge.textContent = currentUnit;
+      updateLegendUnits(currentUnit);
       renderWaypointTable();
-      if (waypoints.length > 0) {
-        updateCompassGauge(waypoints[waypoints.length - 1]);
-      }
+      updateCompassGauge(lastInspectedWeather);
     });
   }
 
@@ -1765,8 +1988,6 @@ function initEventListeners() {
     });
   }
 
-  
-  // Visual Style Toggle (Arrows vs Particles)
   const btnStyleArrows = document.getElementById('btnStyleArrows');
   const btnStyleParticles = document.getElementById('btnStyleParticles');
 
@@ -1794,7 +2015,6 @@ function initEventListeners() {
   if (btnStyleArrows) btnStyleArrows.addEventListener('click', () => setDisplayStyle('arrows'));
   if (btnStyleParticles) btnStyleParticles.addEventListener('click', () => setDisplayStyle('particles'));
 
-  // Locate Me GPS Button
   const locateMeBtn = document.getElementById('locateMeBtn');
   if (locateMeBtn) {
     locateMeBtn.addEventListener('click', () => {
@@ -1808,18 +2028,17 @@ function initEventListeners() {
           },
           err => {
             locateMeBtn.innerHTML = '<i class="fa-solid fa-crosshairs"></i>';
-            alert('Geolocation access denied or unavailable: ' + err.message);
+            showToast('Geolocation access denied or unavailable: ' + err.message, 'error');
           },
           { enableHighAccuracy: true, timeout: 10000 }
         );
       } else {
-        alert('Geolocation is not supported by your browser.');
+        showToast('Geolocation is not supported by your browser.', 'warn');
       }
     });
   }
 
   initSearchEngine();
-
 
   if (resetRouteBtn) resetRouteBtn.addEventListener('click', clearRoute);
   if (exportGpxBtn) exportGpxBtn.addEventListener('click', exportRouteGpx);

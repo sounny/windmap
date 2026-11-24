@@ -1,11 +1,12 @@
 """
 NOAA GFS Model Ingestion & Telemetry Processing Engine
-Fetches genuine global NOAA GFS daily wind telemetry across a multi-continent
-coordinate station grid from Open-Meteo, interpolates via inverse-distance
-weighting onto a dense global vector field, and exports production-grade
-forecast.json and forecast.geojson datasets.
+Fetches genuine global NOAA GFS (gfs_seamless) daily wind telemetry across a
+multi-continent coordinate station grid from Open-Meteo, interpolates via
+latitude-corrected inverse-distance weighting onto a dense global vector field,
+and exports forecast.json.
 """
 
+import argparse
 from datetime import datetime, timezone
 import json
 import logging
@@ -17,7 +18,6 @@ import time
 import numpy as np
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
 
 # Configure structured logging
 logging.basicConfig(
@@ -27,8 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("windmap.ingestion")
 
-GEOJSON_OUTPUT_FILE = Path("forecast.geojson")
-JSON_OUTPUT_FILE = Path("forecast.json")
+DEFAULT_OUTPUT_FILE = Path("forecast.json")
 
 # Batching & Resilience Configuration
 CHUNK_SIZE = 60          # 360 global points split into 6 lightweight batches
@@ -37,18 +36,12 @@ READ_TIMEOUT = 60.0      # generous seconds per chunk to prevent premature timeo
 MAX_RETRIES = 5          # max retry attempts per chunk
 BASE_BACKOFF = 2.0       # base seconds for exponential backoff
 
+
 def create_resilient_session() -> requests.Session:
-    """Builds a requests.Session with connection pooling and HTTP retries."""
+    """Builds a requests.Session with connection pooling (retries handled explicitly per chunk)."""
     session = requests.Session()
-    retry_strategy = Retry(
-        total=MAX_RETRIES,
-        backoff_factor=BASE_BACKOFF,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
-        raise_on_status=True
-    )
     adapter = HTTPAdapter(
-        max_retries=retry_strategy,
+        max_retries=0,
         pool_connections=10,
         pool_maxsize=10
     )
@@ -59,8 +52,9 @@ def create_resilient_session() -> requests.Session:
     })
     return session
 
+
 def fetch_chunk_with_backoff(session: requests.Session, chunk: list, chunk_idx: int, total_chunks: int) -> list:
-    """Fetches a single chunk of coordinate points with explicit jittered backoff."""
+    """Fetches a single chunk of coordinate points with explicit jittered exponential backoff."""
     lat_str = ','.join(str(c[0]) for c in chunk)
     lon_str = ','.join(str(c[1]) for c in chunk)
     params = {
@@ -68,6 +62,7 @@ def fetch_chunk_with_backoff(session: requests.Session, chunk: list, chunk_idx: 
         "longitude": lon_str,
         "daily": "wind_speed_10m_max,wind_direction_10m_dominant",
         "wind_speed_unit": "kn",
+        "models": "gfs_seamless",
         "timezone": "UTC"
     }
     url = "https://api.open-meteo.com/v1/forecast"
@@ -76,8 +71,10 @@ def fetch_chunk_with_backoff(session: requests.Session, chunk: list, chunk_idx: 
     for attempt in range(1, MAX_RETRIES + 1):
         t0 = time.time()
         try:
-            logger.info("Fetching chunk %d/%d (%d coords, attempt %d/%d)...",
-                        chunk_idx, total_chunks, len(chunk), attempt, MAX_RETRIES)
+            logger.info(
+                "Fetching chunk %d/%d (%d coords, attempt %d/%d)...",
+                chunk_idx, total_chunks, len(chunk), attempt, MAX_RETRIES
+            )
             resp = session.get(url, params=params, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
             resp.raise_for_status()
             data = resp.json()
@@ -87,15 +84,19 @@ def fetch_chunk_with_backoff(session: requests.Session, chunk: list, chunk_idx: 
                 data = [data]
 
             duration = time.time() - t0
-            logger.info("Successfully fetched chunk %d/%d in %.2fs (%d locations).",
-                        chunk_idx, total_chunks, duration, len(data))
+            logger.info(
+                "Successfully fetched chunk %d/%d in %.2fs (%d locations).",
+                chunk_idx, total_chunks, duration, len(data)
+            )
             return data
 
-        except (requests.exceptions.RequestException, Exception) as exc:
+        except (requests.exceptions.RequestException, ValueError) as exc:
             last_error = exc
             duration = time.time() - t0
-            logger.warning("Chunk %d/%d failed after %.2fs on attempt %d/%d: %s",
-                           chunk_idx, total_chunks, duration, attempt, MAX_RETRIES, exc)
+            logger.warning(
+                "Chunk %d/%d failed after %.2fs on attempt %d/%d: %s",
+                chunk_idx, total_chunks, duration, attempt, MAX_RETRIES, exc
+            )
 
             if attempt < MAX_RETRIES:
                 sleep_time = (BASE_BACKOFF ** attempt) + random.uniform(0.5, 1.5)
@@ -103,6 +104,7 @@ def fetch_chunk_with_backoff(session: requests.Session, chunk: list, chunk_idx: 
                 time.sleep(sleep_time)
 
     raise RuntimeError(f"Failed to fetch chunk {chunk_idx}/{total_chunks} after {MAX_RETRIES} attempts: {last_error}")
+
 
 def fetch_all_gfs_stations() -> list:
     """Generates global coordinate station grid and fetches telemetry across chunked queries."""
@@ -114,8 +116,10 @@ def fetch_all_gfs_stations() -> list:
 
     chunks = [coords[i:i + CHUNK_SIZE] for i in range(0, total_points, CHUNK_SIZE)]
     total_chunks = len(chunks)
-    logger.info("Prepared %d station coordinates across %d chunks of up to %d points each.",
-                total_points, total_chunks, CHUNK_SIZE)
+    logger.info(
+        "Prepared %d station coordinates across %d chunks of up to %d points each.",
+        total_points, total_chunks, CHUNK_SIZE
+    )
 
     session = create_resilient_session()
     all_data = []
@@ -136,8 +140,10 @@ def fetch_all_gfs_stations() -> list:
 
     return all_data
 
-def fetch_and_generate_global_gfs():
-    """Main pipeline execution: fetch, validate, interpolate, and save datasets."""
+
+def fetch_and_generate_global_gfs(output_file: Path = DEFAULT_OUTPUT_FILE) -> None:
+    """Main pipeline execution: fetch, validate, interpolate, and save forecast.json."""
+    output_path = Path(output_file)
     all_data = fetch_all_gfs_stations()
 
     if not all_data or 'daily' not in all_data[0] or 'time' not in all_data[0]['daily']:
@@ -153,7 +159,6 @@ def fetch_and_generate_global_gfs():
     dense_lons = np.arange(-180, 180, 2.5)
 
     by_date = {}
-    geojson_features = []
     to_rad = np.pi / 180.0
 
     for day_idx, day_str in enumerate(dates):
@@ -191,10 +196,12 @@ def fetch_and_generate_global_gfs():
         vecs = []
 
         for lat in dense_lats:
+            cos_lat = np.cos(lat * to_rad)
             for lon in dense_lons:
                 dlat = st_lats - lat
                 dlon = np.minimum(np.abs(st_lons - lon), 360 - np.abs(st_lons - lon))
-                d2 = dlat**2 + dlon**2
+                dlon_scaled = dlon * cos_lat
+                d2 = dlat**2 + dlon_scaled**2
 
                 nearest_idx = np.argpartition(d2, 6)[:6]
                 weights = 1.0 / (d2[nearest_idx] + 1e-4)
@@ -213,32 +220,48 @@ def fetch_and_generate_global_gfs():
 
                 vecs.extend([lat_r, lon_r, spd_r, deg_r])
 
-                if day_idx == 0 and (lat_r % 5.0 == 0) and (lon_r % 5.0 == 0):
-                    geojson_features.append({
-                        "type": "Feature",
-                        "geometry": {"type": "Point", "coordinates": [lon_r, lat_r]},
-                        "properties": {"date": day_str, "WS": spd_r, "WD": deg_r}
-                    })
-
         by_date[day_str] = vecs
         logger.info("Processed day %s: %d grid vector points", day_str, len(vecs) // 4)
 
-    # Serialize payloads
-    json_payload = json.dumps({'dates': dates, 'vectors': by_date}, separators=(',', ':'))
-    geojson_payload = json.dumps({"type": "FeatureCollection", "features": geojson_features}, separators=(',', ':'))
+    payload = {
+        "model": "NOAA GFS (gfs_seamless via Open-Meteo)",
+        "metric": "daily_max_wind_10m",
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "grid": {
+            "latMin": float(dense_lats[0]),
+            "latMax": float(dense_lats[-1]),
+            "latStep": 2.5,
+            "lonMin": float(dense_lons[0]),
+            "lonMax": float(dense_lons[-1]),
+            "lonStep": 2.5,
+            "rows": int(len(dense_lats)),
+            "cols": int(len(dense_lons)),
+        },
+        "dates": dates,
+        "vectors": by_date,
+    }
 
-    # Atomic write to temporary files before replacing production datasets
-    tmp_json = JSON_OUTPUT_FILE.with_suffix('.json.tmp')
-    tmp_geojson = GEOJSON_OUTPUT_FILE.with_suffix('.geojson.tmp')
+    json_payload = json.dumps(payload, separators=(',', ':'))
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_json = output_path.with_name(f"{output_path.name}.tmp")
     tmp_json.write_text(json_payload, encoding='utf-8')
-    tmp_geojson.write_text(geojson_payload, encoding='utf-8')
+    os.replace(tmp_json, output_path)
 
-    # Atomic swap
-    os.replace(tmp_json, JSON_OUTPUT_FILE)
-    os.replace(tmp_geojson, GEOJSON_OUTPUT_FILE)
+    logger.info("Saved 100%% genuine NOAA GFS telemetry to %s successfully!", output_path)
 
-    logger.info("Saved 100%% genuine NOAA GFS forecast.json & forecast.geojson successfully!")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fetch and interpolate global NOAA GFS wind telemetry.")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT_FILE,
+        help="Destination path for forecast.json (default: forecast.json)"
+    )
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    fetch_and_generate_global_gfs()
+    args = parse_args()
+    fetch_and_generate_global_gfs(output_file=args.output)

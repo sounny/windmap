@@ -38,6 +38,13 @@ build/
 dist/
 *.egg-info/
 
+# Build & Data Ingestion Artifacts
+_site/
+gfs_subsets/
+*.grib2
+*.idx
+*.tmp
+
 # Node.js
 node_modules/
 npm-debug.log*

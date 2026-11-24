@@ -1,76 +1,61 @@
-# Wind Data Visualization Web App
+# Wind Map
 
-## [mapWinds](mapwinds.com)
-
+Global interactive marine and aviation wind forecast cockpit, published live at **[sounny.github.io/windmap](https://sounny.github.io/windmap/)**.
 
 ## Overview
 
-This web application provides an interactive interface to visualize wind data, including a 7-day forecast. Users can view color-coded wind arrows indicating wind direction, plot routes by selecting waypoints on the map, and retrieve real-time wind data for those waypoints. The coordinates for the waypoints and real-time wind data are displayed in a tabular format.
-
+Wind Map visualizes a 7-day global surface (10 m) wind forecast alongside live point weather observations and great-circle route planning. Users can inspect wind speed, gusts, pressure, temperature, and flow direction anywhere on Earth, switch between precision vector arrows and 60 FPS fluid particles, and export planned voyages.
 
 ## Features
 
-**Wind Arrows and Forecast**: Color-coded wind arrows on the map represent wind direction, and the 7-day forecast can be navigated using a date slider.
+- **Global Wind Field (Arrows & Particles)**: High-DPI HTML5 Canvas arrow vector field and 60 FPS animated fluid particle streamlines built over a regular 2.5-degree global grid (`-75°` to `77.5°` latitude, full `-180°` to `180°` wrap), using WMO/NOAA marine velocity color tiers.
+- **7-Day Timeline Scrubber**: Navigate daily maximum NOAA GFS (`gfs_seamless`) forecasts with auto-play (`1x`, `2x`, `4x`) and keyboard/step controls, automatically aligned to today's UTC date on load.
+- **Great-Circle Route Planner**: Click the map to drop waypoints, compute geodesic leg and cumulative distances in nautical miles (`NM`), hover anywhere along the route line for interpolated wind, point of sail, and headwind/tailwind components, and export routes as **GPX** or **GeoJSON**.
+- **Live Point Telemetry & Geocoding**: Point clicks and location searches query live 10 m wind speed, gusts, direction, MSL pressure, and temperature from Open-Meteo, falling back seamlessly to bilinear interpolation on the NOAA GFS grid.
+- **Keyless Basemaps & Controls**: Toggle between Esri Dark/Light Vector nautical charts and Satellite imagery, `FROM` (meteorological) vs `TO` (flow) direction conventions, and `kts`, `mph`, `km/h`, `m/s`, or Beaufort units.
 
-**Route Plotting**: Users can plot routes by selecting waypoints on the map. The route is displayed using a polyline, providing a clear visual representation.
+## Architecture
 
-**Real-time Wind Data**: Clicking on the map retrieves real-time wind data for the selected coordinates. The data includes wind speed, wind direction, and geographical coordinates.
+- [`index.html`](index.html): Cockpit layout, glassmorphic HUD, legend, telemetry drawer, and timeline dock.
+- [`style.css`](style.css): Dark/light theme tokens, Leaflet popup overrides, responsive styling, and glassmorphic UI components.
+- [`NewScript.js`](NewScript.js): Canvas vector/particle renderers, O(1) bilinear field interpolation, spherical great-circle routing, search autocomplete, and GPX/GeoJSON exporters.
+- [`downloadData.py`](downloadData.py): Fetches NOAA GFS (`gfs_seamless`) daily wind telemetry across 360 global grid stations from Open-Meteo, interpolates onto a 2.5-degree grid (`8,928` points/day) using latitude-corrected IDW, and atomically writes `forecast.json`.
 
-**Tabular Display**: Real-time wind data for selected waypoints is presented in a tabular format for easy reference.
-
-
-## Prerequisites
-
-[Leaflet](https://leafletjs.com/) - An open-source JavaScript library for interactive maps.
-
-[OpenWeatherMap](https://openweathermap.org/) API - API key required for fetching real-time wind data.
-
-
-## Usage
-
-The app is available [here](mapwinds.com)
-
-alternatively,
+## Local Development
 
 1. Clone the repository:
 
-```bash
-git clone https://github.com/your-username/wind-data-web-app.git
-```
+   ```bash
+   git clone https://github.com/sounny/windmap.git
+   cd windmap
+   ```
 
-2. Navigate to the project directory:
+2. (Optional) Refresh the local `forecast.json` dataset:
 
-```bash
-cd wind-data-web-app
-```
+   ```bash
+   pip install -r requirements.txt
+   python downloadData.py
+   ```
 
-3. Install the requirements and run downloadData.py to update the CSV for wind data.
+3. Serve the static files locally (required so `fetch('forecast.json')` works):
 
-4. Open index.html in your preferred web browser.
+   ```bash
+   python -m http.server 8000
+   ```
 
-5. Interact with the map by clicking on specific locations to get real-time wind data. Use the date slider to navigate through the 7-day forecast.
+   Then open `http://localhost:8000` in your browser.
 
-6. To plot routes, click on the map to add waypoints. The route will be displayed as a polyline alongwith their real time wind data in the table.
+## Deployment & Automation
 
-7. Click the "Play" button to animate wind data for the next 7 days.
+- **GitHub Pages (`deploy-pages.yml`)**: Deploys static assets and builds a fresh `_site/forecast.json` via `downloadData.py` on every push to `main` and every 6 hours on schedule (`15 */6 * * *`), eliminating large automated data commits on `main`.
+- **Hourly Health Check (`hourly-health-check.yml`)**: Validates JavaScript/Python syntax, verifies the live GitHub Pages deployment and `forecast.json` schema/freshness, and probes upstream Esri and Open-Meteo endpoints every hour.
 
+## Data Sources
 
-## Code Structure
-
-- **index.html**: HTML file defining the structure of the web page.
-- **style.css**: CSS file for styling the web page elements.
-- **NewScript.js**: JavaScript file containing the logic for map interaction, wind data retrieval, and route plotting.
-
-
-## Acknowledgments
-
-This project utilizes the [Leaflet](https://leafletjs.com/) library for map rendering.
-
-Data for wind markers is obtained from [PacIOOS](http://www.pacioos.hawaii.edu/weather/model-wind-global/#access).
-
-Real-time wind data is obtained from the [OpenWeatherMap](https://openweathermap.org/) API.
-
+- **Global 7-Day Wind Forecast & Live Point Weather / Geocoding**: [Open-Meteo](https://open-meteo.com/) (NOAA GFS `gfs_seamless`)
+- **Basemap Tiles**: Esri ArcGIS World Dark Gray / Light Gray Canvas & World Imagery
+- **Mapping Engine**: [Leaflet](https://leafletjs.com/)
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

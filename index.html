@@ -2,10 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wind Map | Global Marine & Aviation Wind Forecast Cockpit</title>
   <!-- Inline SVG Favicon (Prevents 404) -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2246%22 fill=%22%23080f1e%22 stroke=%22%2338bdf8%22 stroke-width=%226%22/><path d=%22M50,15 L62,50 L50,42 L38,50 Z%22 fill=%22%23f43f5e%22/><path d=%22M50,85 L62,50 L50,58 L38,50 Z%22 fill=%22%2394a3b8%22/></svg>" />
@@ -30,7 +27,7 @@
     rel="stylesheet"
   />
 
-  <link rel="stylesheet" href="style.css?v=1788105841" />
+  <link rel="stylesheet" href="style.css?v=20261124" />
 </head>
 <body>
   <!-- Top Navigation Translucent Glass HUD -->
@@ -149,6 +146,7 @@
 
   <!-- Main Cockpit Viewport -->
   <main class="cockpit-container">
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
     <!-- Map Canvas -->
     <div id="map">
       <!-- Loading Overlay -->
@@ -162,7 +160,7 @@
         <div class="legend-header">
           <i class="fa-solid fa-wind"></i>
           <span>WIND VECTOR SCALE</span>
-          <span id="legendUnitBadge" class="badge glass-badge">knots</span>
+          <span id="legendUnitBadge" class="badge glass-badge">kts</span>
         </div>
         <div class="legend-scale">
           <div class="scale-item">
@@ -171,7 +169,7 @@
                 <path d="M2,6 L10,6 M7,3 L10,6 L7,9" stroke="#10b981" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">&lt; 7 kts (Light Air)</span>
+            <span class="scale-label" data-tier="0">&lt; 7 kts (Light Air)</span>
           </div>
           <div class="scale-item">
             <span class="legend-arrow-box">
@@ -179,7 +177,7 @@
                 <path d="M2,6 L18,6 M14,3 L18,6 L14,9" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">7 - 15 kts (Moderate)</span>
+            <span class="scale-label" data-tier="1">7 - 15 kts (Moderate)</span>
           </div>
           <div class="scale-item">
             <span class="legend-arrow-box">
@@ -187,7 +185,7 @@
                 <path d="M2,6 L26,6 M21,3 L26,6 L21,9" stroke="#facc15" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">16 - 24 kts (Fresh)</span>
+            <span class="scale-label" data-tier="2">16 - 24 kts (Fresh)</span>
           </div>
           <div class="scale-item">
             <span class="legend-arrow-box">
@@ -195,7 +193,7 @@
                 <path d="M2,6 L33,6 M28,2.5 L33,6 L28,9.5" stroke="#fb923c" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">25 - 33 kts (Near Gale)</span>
+            <span class="scale-label" data-tier="3">25 - 33 kts (Near Gale)</span>
           </div>
           <div class="scale-item">
             <span class="legend-arrow-box">
@@ -203,7 +201,7 @@
                 <path d="M2,6 L41,6 M35,2 L41,6 L35,10" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">34 - 47 kts (Gale Force)</span>
+            <span class="scale-label" data-tier="4">34 - 47 kts (Gale Force)</span>
           </div>
           <div class="scale-item">
             <span class="legend-arrow-box">
@@ -211,7 +209,7 @@
                 <path d="M2,6 L48,6 M41,1.5 L48,6 L41,10.5" stroke="#c084fc" stroke-width="1.5" stroke-linecap="round" fill="none" />
               </svg>
             </span>
-            <span class="scale-label">&ge; 48 kts (Storm/Hurricane)</span>
+            <span class="scale-label" data-tier="5">&ge; 48 kts (Storm/Hurricane)</span>
           </div>
         </div>
         <div class="legend-footer">
@@ -271,8 +269,15 @@
               </div>
             </div>
             <div class="bearing-badge glass-badge" title="Wind Origin & Flow Bearing">
-              <div class="bearing-row"><span class="badge-sub">FROM</span> <strong id="bearingDeg">0°</strong> <span id="cardinalText">CALM</span></div>
-              <div class="bearing-flow-sub"><span class="badge-sub">BLOWS TO</span> <strong id="flowDegText">--°</strong></div>
+              <div class="bearing-row">
+                <span id="primaryDirLabel" class="badge-sub">FROM</span>
+                <strong id="bearingDeg">--°</strong>
+                <span id="cardinalText">--</span>
+              </div>
+              <div class="bearing-flow-sub">
+                <span id="secondaryDirLabel" class="badge-sub">BLOWS TO</span>
+                <strong id="flowDegText">--°</strong>
+              </div>
             </div>
           </div>
 
@@ -407,7 +412,7 @@
 
         <!-- Active Forecast Date & Time Badge -->
         <div class="timestamp-hud">
-          <span class="hud-label">GFS FORECAST</span>
+          <span class="hud-label">NOAA GFS DAILY MAX</span>
           <span id="selectedDate" class="hud-date">Loading Model...</span>
         </div>
       </div>
@@ -420,6 +425,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="NewScript.js?v=1788105841"></script>
+  <script src="NewScript.js?v=20261124"></script>
 </body>
 </html>
